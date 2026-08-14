@@ -20,9 +20,14 @@ Run these commands from the project directory:
 test -z "$(gofmt -l ./cmd ./internal)"
 go test -race ./...
 go vet ./...
+golangci-lint run --timeout=5m
 go build -trimpath -o /tmp/idmux-proxy ./cmd/idmux-proxy
 docker build --file deploy/Dockerfile --tag idmux-proxy:local .
+trivy image --severity HIGH,CRITICAL --ignore-unfixed idmux-proxy:local
 ```
+
+The Docker and Trivy checks require Docker and Trivy locally. The same checks
+run in GitHub Actions for every pull request and release.
 
 See [`docs/gitops.md`](docs/gitops.md) for the branch, review, release, and
 deployment workflow.

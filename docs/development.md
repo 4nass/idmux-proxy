@@ -6,7 +6,11 @@
 gofmt -w ./cmd ./internal
 go test -race ./...
 go vet ./...
+golangci-lint run --timeout=5m
 ```
+
+The repository uses the version 2 format in `.golangci.yml`. The configuration
+enables security checks through `gosec` and keeps the default static checks.
 
 ## Local configuration
 
@@ -28,4 +32,10 @@ example stack:
 KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:<pinned-version>
 IDMUX_ENCRYPTION_KEY=<32-byte-base64-key>
 docker compose -f deploy/docker-compose.example.yml up --build
+```
+
+After building the local image, scan it before using it:
+
+```text
+trivy image --severity HIGH,CRITICAL --ignore-unfixed idmux-proxy:local
 ```

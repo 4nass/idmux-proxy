@@ -9,7 +9,7 @@ A change is reviewed, tested, merged, released, and deployed from Git.
 2. Make one focused change.
 3. Run the local checks from `docs/development.md`.
 4. Open a pull request with the security impact and test evidence.
-5. Wait for required CI and security checks.
+5. Wait for required CI, lint, and image security checks.
 6. Merge the pull request into `main`.
 7. Create a signed release tag such as `v0.1.0`.
 8. Deploy the image by digest through the environment configuration.
@@ -23,7 +23,8 @@ Configure the `main` branch with:
 
 - pull requests required for every change;
 - at least one code owner review;
-- required status checks: `CI / test`, `Security / govulncheck`, and
+- required status checks: `CI / test`, `Lint / golangci-lint`,
+  `Security / govulncheck`, `Security / container-scan`, and
   `CodeQL / analyze`;
 - stale approvals dismissed after new changes;
 - conversations resolved before merge;
@@ -37,6 +38,7 @@ Keep the branch history linear and use small, focused commits.
 The release workflow runs only for tags matching `v*.*.*`. It:
 
 - runs the release tests;
+- builds a release image and blocks on HIGH or CRITICAL Trivy findings;
 - builds Linux AMD64 and ARM64 images;
 - publishes the image to GHCR;
 - creates SBOM and provenance data.
