@@ -110,6 +110,12 @@ deploy/                     container image
 .github/                    contribution checks
 ```
 
+## GitOps
+
+Git is the source of truth for code, validation, releases, and deployment inputs.
+Read [`docs/gitops.md`](docs/gitops.md) for the branch, release, secret, and
+rollback rules.
+
 ## Contribution
 
 Keep the core small and provider-neutral. New IdP behavior should be added as a
