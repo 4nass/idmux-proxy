@@ -14,6 +14,7 @@ import (
 )
 
 func TestProxyVirtualizesMultipleSessionsAndIsolatesLogout(t *testing.T) {
+	var forwardedCookie string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if issue := r.URL.Query().Get("issue"); issue != "" {
 			w.Header().Add("Set-Cookie", "KEYCLOAK_IDENTITY="+issue+"; Path=/; HttpOnly")
@@ -22,7 +23,7 @@ func TestProxyVirtualizesMultipleSessionsAndIsolatesLogout(t *testing.T) {
 			w.Header().Add("Set-Cookie", "KEYCLOAK_IDENTITY=; Max-Age=0; Path=/")
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte(r.Header.Get("Cookie")))
+		forwardedCookie = r.Header.Get("Cookie")
 	}))
 	defer upstream.Close()
 
@@ -51,27 +52,27 @@ func TestProxyVirtualizesMultipleSessionsAndIsolatesLogout(t *testing.T) {
 	}
 	assertNoCookie(t, jar, proxyServer.URL, "KEYCLOAK_IDENTITY")
 
-	body = getBody(t, client, proxyServer.URL+"/check?authuser=0")
-	if body != "KEYCLOAK_IDENTITY=idp-A" {
-		t.Fatalf("default session was not selected: %q", body)
+	getBody(t, client, proxyServer.URL+"/check?authuser=0")
+	if forwardedCookie != "KEYCLOAK_IDENTITY=idp-A" {
+		t.Fatalf("default session was not selected: %q", forwardedCookie)
 	}
 
 	body = getBody(t, client, proxyServer.URL+"/login?authuser=new&issue=idp-B")
 	if body != "" {
 		t.Fatalf("second login forwarded a native IdP cookie: %q", body)
 	}
-	body = getBody(t, client, proxyServer.URL+"/check?authuser=1")
-	if body != "KEYCLOAK_IDENTITY=idp-B" {
-		t.Fatalf("second session was not selected: %q", body)
+	getBody(t, client, proxyServer.URL+"/check?authuser=1")
+	if forwardedCookie != "KEYCLOAK_IDENTITY=idp-B" {
+		t.Fatalf("second session was not selected: %q", forwardedCookie)
 	}
 
-	body = getBody(t, client, proxyServer.URL+"/protocol/openid-connect/logout?authuser=1")
-	if body != "KEYCLOAK_IDENTITY=idp-B" {
-		t.Fatalf("logout did not target the selected session: %q", body)
+	getBody(t, client, proxyServer.URL+"/protocol/openid-connect/logout?authuser=1")
+	if forwardedCookie != "KEYCLOAK_IDENTITY=idp-B" {
+		t.Fatalf("logout did not target the selected session: %q", forwardedCookie)
 	}
-	body = getBody(t, client, proxyServer.URL+"/check?authuser=0")
-	if body != "KEYCLOAK_IDENTITY=idp-A" {
-		t.Fatalf("logout removed the wrong session: %q", body)
+	getBody(t, client, proxyServer.URL+"/check?authuser=0")
+	if forwardedCookie != "KEYCLOAK_IDENTITY=idp-A" {
+		t.Fatalf("logout removed the wrong session: %q", forwardedCookie)
 	}
 
 	response, err := client.Get(proxyServer.URL + "/__idmux/sessions")
@@ -94,9 +95,7 @@ func TestProxyVirtualizesMultipleSessionsAndIsolatesLogout(t *testing.T) {
 }
 
 func TestProxyFallsBackOnConflictingRoutingInputs(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(r.Header.Get("Cookie")))
-	}))
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	defer upstream.Close()
 
 	upstreamURL, _ := url.Parse(upstream.URL)
@@ -167,7 +166,7 @@ func ExampleHandler() {
 }
 
 func TestProxyClearsInvalidCookieAndStartsFreshSession(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("invalid cookie request reached upstream")
 	}))
 	defer upstream.Close()
@@ -188,7 +187,13 @@ func TestProxyClearsInvalidCookieAndStartsFreshSession(t *testing.T) {
 		t.Fatalf("create proxy: %v", err)
 	}
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/start", nil)
-	request.AddCookie(&http.Cookie{Name: "IDMUX_SESSION", Value: "corrupted"})
+	request.AddCookie(&http.Cookie{
+		Name:     "IDMUX_SESSION",
+		Value:    "corrupted",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusSeeOther {
