@@ -1,0 +1,19 @@
+# Build output
+/bin/
+/dist/
+/identity-multiplexer
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Go files
+*.test
+*.out
+coverage.html
+
+# Local editor files
+.idea/
+.vscode/
+*.swp
