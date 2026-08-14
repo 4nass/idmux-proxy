@@ -33,6 +33,28 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Build release image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: idmux-proxy:release-scan
+
+      - name: Scan release image with Trivy
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: image
+          image-ref: idmux-proxy:release-scan
+          version: v0.74.0
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
