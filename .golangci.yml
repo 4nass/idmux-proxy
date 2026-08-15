@@ -1,0 +1,28 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - gosec
+    - misspell
+    - revive
+  settings:
+    gosec:
+      config:
+        global:
+          nosec: false
+          show-ignored: false
+          nosec-require-rules: enabled
+          nosec-require-justification: enabled
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt

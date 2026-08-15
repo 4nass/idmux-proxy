@@ -51,7 +51,6 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 	contextValue, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		logger.Info("proxy started", "listen_addr", cfg.ListenAddr, "upstream", cfg.UpstreamURL.String())
@@ -63,10 +62,13 @@ func main() {
 
 	<-contextValue.Done()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if err := server.Shutdown(shutdownContext); err != nil {
+		cancel()
+		stop()
 		logger.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	cancel()
+	stop()
 	logger.Info("proxy stopped")
 }

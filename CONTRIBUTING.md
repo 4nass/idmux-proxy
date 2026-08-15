@@ -10,19 +10,31 @@ Thank you for helping improve Identity Multiplexer.
 - Add tests for security or routing behavior.
 - Use the standard library unless a dependency has a clear security and
   maintenance benefit.
+- Keep the proxy provider-neutral and secure by default.
 
 ## Local checks
 
 Run these commands from the project directory:
 
 ```text
-go test ./...
+test -z "$(gofmt -l ./cmd ./internal)"
+go test -race ./...
 go vet ./...
-gofmt -w ./cmd ./internal
+golangci-lint run --timeout=5m
+go build -trimpath -o /tmp/idmux-proxy ./cmd/idmux-proxy
+docker build --file deploy/Dockerfile --tag idmux-proxy:local .
+trivy image --severity HIGH,CRITICAL --ignore-unfixed idmux-proxy:local
 ```
+
+The Docker and Trivy checks require Docker and Trivy locally. The same checks
+run in GitHub Actions for every pull request and release.
+
+See [`docs/gitops.md`](docs/gitops.md) for the branch, review, release, and
+deployment workflow.
 
 ## Pull requests
 
 Explain the problem, the security impact, and how the change was tested. Keep
 the pull request focused on one idea. Do not include personal attribution in
-generated files or release metadata.
+generated files or release metadata. Changes to deployment inputs must use
+immutable image digests and include rollback notes.

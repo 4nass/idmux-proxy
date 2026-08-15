@@ -74,10 +74,10 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	}
 
 	h := &Handler{cfg: cfg, sealer: sealer, logger: logger}
-	reverseProxy := httputil.NewSingleHostReverseProxy(upstream)
-	originalDirector := reverseProxy.Director
-	reverseProxy.Director = func(req *http.Request) {
-		originalDirector(req)
+	reverseProxy := &httputil.ReverseProxy{}
+	reverseProxy.Rewrite = func(proxyRequest *httputil.ProxyRequest) {
+		proxyRequest.SetURL(upstream)
+		req := proxyRequest.Out
 		value, _ := req.Context().Value(requestStateKey{}).(*requestState)
 		if value == nil {
 			return
@@ -359,10 +359,13 @@ func (h *Handler) invalidCookieResponse(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Add("Set-Cookie", h.expireCookie().String())
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		location := *r.URL
-		query := location.Query()
+		query := r.URL.Query()
 		query.Set("authuser", "new")
-		location.RawQuery = query.Encode()
+		location := &url.URL{
+			Path:     r.URL.Path,
+			RawPath:  r.URL.RawPath,
+			RawQuery: query.Encode(),
+		}
 		http.Redirect(w, r, location.String(), http.StatusSeeOther)
 		return
 	}
@@ -370,29 +373,39 @@ func (h *Handler) invalidCookieResponse(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) sessionCookie(value string, now time.Time) *http.Cookie {
-	return &http.Cookie{
+	cookie := &http.Cookie{ // #nosec G124 -- CookieSecure is disabled only for development over plain HTTP; production config rejects it.
 		Name:     h.cfg.SessionCookieName,
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   h.cfg.CookieSecure,
-		SameSite: sameSite(h.cfg.CookieSameSite),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  now.Add(h.cfg.SessionTTL),
 		MaxAge:   int(h.cfg.SessionTTL.Seconds()),
 	}
+	if !h.cfg.CookieSecure {
+		cookie.Secure = false
+	}
+	cookie.SameSite = sameSite(h.cfg.CookieSameSite)
+	return cookie
 }
 
 func (h *Handler) expireCookie() *http.Cookie {
-	return &http.Cookie{
+	cookie := &http.Cookie{ // #nosec G124 -- CookieSecure is disabled only for development over plain HTTP; production config rejects it.
 		Name:     h.cfg.SessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   h.cfg.CookieSecure,
-		SameSite: sameSite(h.cfg.CookieSameSite),
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Unix(1, 0),
 		MaxAge:   -1,
 	}
+	if !h.cfg.CookieSecure {
+		cookie.Secure = false
+	}
+	cookie.SameSite = sameSite(h.cfg.CookieSameSite)
+	return cookie
 }
 
 func sameSite(value string) http.SameSite {
