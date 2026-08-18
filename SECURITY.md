@@ -15,8 +15,9 @@ Do not include real user tokens, cookies, keys, or personal data.
 The most important deployment rules are:
 
 - use HTTPS between the browser, proxy, and IdP;
-- keep `COOKIE_SECURE=true`;
-- store `COOKIE_KEY_BASE64` in a secret manager;
-- use a short `SESSION_TTL`;
+- keep `IDMUX_COOKIE_SECURE=true`;
+- store `IDMUX_ENCRYPTION_KEY` in a secret manager;
+- set `IDMUX_ENCRYPTION_KEY_PREVIOUS` only during key rotation;
+- use a short `IDMUX_SESSION_TTL`;
 - restrict access to the proxy and upstream network;
 - verify logout, refresh, callback, and parallel login flows with your IdP.
