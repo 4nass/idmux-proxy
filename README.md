@@ -22,6 +22,13 @@ The core currently supports:
 - No database in the proxy.
 - Health checks and a small account list API.
 
+## Documentation
+
+The public project documentation lives in the [GitHub Wiki](https://github.com/4nass/idmux-proxy/wiki).
+It can be edited on GitHub or from the command line.
+
+The `docs/` folder contains technical notes that belong with the source code.
+
 ## Security model
 
 - The browser never receives the native IdP session cookie.
