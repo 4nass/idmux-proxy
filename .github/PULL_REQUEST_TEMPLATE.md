@@ -6,9 +6,9 @@
 
 <!-- Explain whether cookies, routing, authentication, or trust boundaries changed. -->
 
-## GitOps impact
+## DevOps & Operations impact
 
-<!-- Explain changes to images, deployment inputs, environments, or workflows. -->
+<!-- Explain changes to Git, CI/CD, monitoring, logs, images, or environments. -->
 
 ## Tests
 

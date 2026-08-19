@@ -17,6 +17,6 @@ exclude:
   - development.md
   - editing.md
   - getting-started.md
-  - gitops.md
+  - devops-and-operations.md
   - operations.md
   - security-invariants.md

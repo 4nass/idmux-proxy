@@ -1,11 +1,11 @@
 ---
-title: GitOps
+title: DevOps & Operations
 ---
 
-# GitOps workflow
+# DevOps & Operations
 
-Git is the source of truth for IdMux code, build rules, and deployment inputs.
-A change is reviewed, tested, merged, released, and deployed from Git.
+This guide covers Git, CI/CD, monitoring, logs, releases, and deployment.
+Git is the source of truth for IdMux code and operational changes.
 
 ## Change flow
 
@@ -36,6 +36,36 @@ Configure the `main` branch with:
 - dependency and action updates managed by Dependabot.
 
 Keep the branch history linear and use small, focused commits.
+
+## Git
+
+- Use short-lived branches from `main`.
+- Keep commits small and easy to review.
+- Use pull requests for code and security changes.
+- Never commit keys, cookies, tokens, or production data.
+
+## CI/CD
+
+CI runs tests, lint, CodeQL, vulnerability checks, and image scans. The release
+workflow builds versioned images, publishes SBOM and provenance data, and
+pushes approved images to GHCR.
+
+Deploy immutable image digests. Do not use `latest` in production.
+
+## Monitoring
+
+Use these endpoints in the service checks:
+
+- `GET /__idmux/healthz` checks process health.
+- `GET /__idmux/readyz` checks whether the proxy can receive traffic.
+
+Alert on failed checks, upstream errors, and unusual session or logout errors.
+
+## Logs
+
+Logs use JSON. They may contain a path, event name, status, or selected numeric
+index. They must never contain cookie values, tokens, encryption keys, or IdP
+session IDs. Keep retention short and protect production log access.
 
 ## Releases
 
