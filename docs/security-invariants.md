@@ -1,3 +1,7 @@
+---
+title: Security invariants
+---
+
 # Security invariants
 
 These rules must remain true under normal traffic, malformed input, upstream

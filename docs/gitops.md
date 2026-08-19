@@ -1,3 +1,7 @@
+---
+title: GitOps
+---
+
 # GitOps workflow
 
 Git is the source of truth for IdMux code, build rules, and deployment inputs.

@@ -1,3 +1,7 @@
+---
+title: Operations
+---
+
 # Operations
 
 ## Production requirements
