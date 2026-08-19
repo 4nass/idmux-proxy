@@ -1,55 +1,45 @@
----
-title: Edit this site
----
+# Wiki documentation
 
-# Edit this site
-
-The site is made from Markdown files in the `docs/` folder. GitHub builds the
-site after a change reaches `main`.
+The public documentation lives in the [IdMux Wiki](https://github.com/4nass/idmux-proxy/wiki).
+The Wiki is a separate Git repository with simple Markdown pages.
 
 ## Edit on the web
 
-1. Open the [IdMux repository](https://github.com/4nass/idmux-proxy).
-2. Open the `docs/` folder.
-3. Open a Markdown page and select the pencil button.
+1. Open the [IdMux Wiki](https://github.com/4nass/idmux-proxy/wiki).
+2. Open a page.
+3. Click **Edit**.
 4. Make a small change.
-5. Open a pull request.
+5. Add a short edit message.
+6. Click **Save Page**.
 
-This is the easiest way to fix a sentence or add a short note. You need write
-access to edit the repository directly. Other contributors can use a fork and
-a pull request.
+## Edit with Git
 
-## Edit with `gh`
-
-Install and sign in to the free [GitHub CLI](https://cli.github.com/), then run:
+The first Wiki page must exist before cloning it.
 
 ```text
-gh auth login
-gh repo clone 4nass/idmux-proxy
-cd idmux-proxy
-git switch -c docs/my-change
+gh auth setup-git
+git clone https://github.com/4nass/idmux-proxy.wiki.git
+cd idmux-proxy.wiki
+git config user.name 4nass
+git config user.email 4nass@users.noreply.github.com
 ```
 
-Edit a file in `docs/`, then run:
+Edit a Markdown page, then publish it:
 
 ```text
-git add docs/
-git commit -m "docs: explain my change"
-git push --set-upstream origin docs/my-change
-gh pr create --fill
+git add .
+git commit -m "docs: update wiki"
+git push origin master
 ```
 
-The pull request runs the normal checks. After it is merged, GitHub Pages
-publishes the new page.
+The Wiki does not have the same pull request flow as the main repository.
+Keep write access limited to trusted contributors. Use an issue or a pull
+request in the main repository when a documentation change needs review.
 
-## Keep the pages simple
+## Writing rules
 
+- Use simple English.
 - Use short sentences.
-- Use one idea per paragraph.
 - Add a command when a reader must run something.
-- Do not add secrets or private data.
 - Keep links working.
-
-The website URL is:
-
-<https://4nass.github.io/idmux-proxy/>
+- Never add secrets, cookies, tokens, keys, or private data.
