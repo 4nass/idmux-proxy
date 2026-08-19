@@ -117,11 +117,11 @@ deploy/                     container image
 .github/                    contribution checks
 ```
 
-## GitOps
+## DevOps & Operations
 
-Git is the source of truth for code, validation, releases, and deployment inputs.
-Read [`docs/gitops.md`](docs/gitops.md) for the branch, release, secret, and
-rollback rules.
+DevOps & Operations covers Git, CI/CD, monitoring, logs, releases, and
+deployment inputs. Read [`docs/devops-and-operations.md`](docs/devops-and-operations.md)
+for the working rules.
 
 ## Contribution
 

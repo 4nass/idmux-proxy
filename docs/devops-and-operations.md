@@ -1,5 +1,5 @@
 ---
-title: GitOps
+title: DevOps & Operations
 ---
 
 # GitOps workflow
