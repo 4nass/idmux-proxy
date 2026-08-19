@@ -2,6 +2,7 @@ title: IdMux Proxy
 description: A small and secure proxy for more than one IdP session.
 url: https://4nass.github.io
 baseurl: /idmux-proxy
+theme: jekyll-theme-minimal
 markdown: kramdown
 show_downloads: false
 defaults:
@@ -9,3 +10,13 @@ defaults:
       path: ""
     values:
       layout: default
+exclude:
+  - architecture.md
+  - configuration.md
+  - contributing.md
+  - development.md
+  - editing.md
+  - getting-started.md
+  - gitops.md
+  - operations.md
+  - security-invariants.md
