@@ -101,13 +101,7 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		} else {
 			req.Header.Set("Cookie", strings.Join(forwardCookies, "; "))
 		}
-		req.Header.Del("X-Auth-User-Index")
-		req.Header.Del("X-IdMux-Internal-Index")
-		req.Header.Del("X-Forwarded-For")
-		req.Header.Del("X-Forwarded-Host")
-		req.Header.Del("X-Forwarded-Proto")
-		req.Header.Del("X-Real-IP")
-		req.Header.Del("Forwarded")
+		removeSensitiveBoundaryHeaders(req.Header)
 	}
 	reverseProxy.ModifyResponse = h.modifyResponse
 	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
@@ -452,9 +446,17 @@ func containsCookiesDirective(values []string) bool {
 }
 
 func removeSensitiveResponseHeaders(header http.Header) {
+	removeSensitiveBoundaryHeaders(header)
+}
+
+func removeSensitiveBoundaryHeaders(header http.Header) {
 	for key := range header {
 		lower := strings.ToLower(key)
-		if lower == "x-auth-user-index" || strings.HasPrefix(lower, "x-idmux-internal-") {
+		if lower == "x-auth-user-index" ||
+			strings.HasPrefix(lower, "x-idmux-internal-") ||
+			strings.HasPrefix(lower, "x-forwarded-") ||
+			lower == "x-real-ip" ||
+			lower == "forwarded" {
 			delete(header, key)
 		}
 	}
