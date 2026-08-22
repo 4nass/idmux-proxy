@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,6 +102,7 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		} else {
 			req.Header.Set("Cookie", strings.Join(forwardCookies, "; "))
 		}
+		canonicalizeRoutingQuery(req.URL, value.target)
 		removeSensitiveBoundaryHeaders(req.Header)
 	}
 	reverseProxy.ModifyResponse = h.modifyResponse
@@ -460,4 +462,14 @@ func removeSensitiveBoundaryHeaders(header http.Header) {
 			delete(header, key)
 		}
 	}
+}
+
+func canonicalizeRoutingQuery(requestURL *url.URL, target session.Target) {
+	query := requestURL.Query()
+	value := strconv.Itoa(target.Index)
+	if target.New {
+		value = "new"
+	}
+	query.Set("authuser", value)
+	requestURL.RawQuery = query.Encode()
 }
