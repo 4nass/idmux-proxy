@@ -348,7 +348,14 @@ func (h *Handler) serveSessions(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) allowedOrigin(r *http.Request) bool {
 	for _, header := range []string{"Origin", "Referer"} {
-		value := strings.TrimSpace(r.Header.Get(header))
+		values := r.Header.Values(header)
+		if len(values) > 1 {
+			return false
+		}
+		if len(values) == 0 {
+			continue
+		}
+		value := strings.TrimSpace(values[0])
 		if value == "" {
 			continue
 		}
