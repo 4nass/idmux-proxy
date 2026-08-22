@@ -93,6 +93,10 @@ func (s *Sealer) Open(value string, maxSessions int) (State, error) {
 		if err := decoder.Decode(&state); err != nil {
 			return State{}, errors.New("session cookie payload is invalid")
 		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			return State{}, errors.New("session cookie payload has trailing data")
+		}
 		if err := state.Validate(maxSessions, time.Now()); err != nil {
 			return State{}, fmt.Errorf("validate session cookie: %w", err)
 		}
