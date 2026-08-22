@@ -26,10 +26,15 @@ errors, key rotation, and concurrent requests.
   `0` when it exists, otherwise start a fresh session context.
 - A captured `Set-Cookie` changes only the selected session slot.
 - Logout removes only the selected slot and keeps other stable indexes unchanged.
+- Repeated routing query parameters or headers are rejected.
+- The proxy sends one canonical `authuser` value upstream.
 
 ## Runtime safety
 
 - No user request data is stored in global or package-level mutable state.
+- Upstream failures return a generic response with `Cache-Control: no-store`.
+- Raw upstream error details are not sent to the client or written to logs.
+- Control routes reject multiple `Origin` or `Referer` headers.
 - Invalid input returns a safe HTTP response and never causes a panic.
 - Routing, proxy, and internal headers are removed before they can cross a
   trust boundary.
@@ -46,4 +51,7 @@ The test suite must cover:
 5. corrupted and expired cookies;
 6. key rotation;
 7. stable indexes after targeted logout;
-8. malformed and oversized input without panic.
+8. malformed and oversized input without panic;
+9. repeated or conflicting routing input;
+10. malformed upstream identity cookies and safe error responses;
+11. repeated `Origin` or `Referer` headers on control routes.
