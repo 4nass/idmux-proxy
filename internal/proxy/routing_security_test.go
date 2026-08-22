@@ -42,7 +42,13 @@ func TestProxyCanonicalizesRoutingInputBeforeUpstream(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/check?authuser=0&authuser=new&scope=openid", nil)
-	request.AddCookie(&http.Cookie{Name: composite.Name, Value: composite.Value})
+	request.AddCookie(&http.Cookie{
+		Name:     composite.Name,
+		Value:    composite.Value,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 

@@ -50,7 +50,7 @@ func FuzzResolveTargetDoesNotPanic(f *testing.F) {
 	f.Add("authuser=new&authuser=0", "1")
 	f.Add("%zz", "new")
 
-	f.Fuzz(func(t *testing.T, query, header string) {
+	f.Fuzz(func(_ *testing.T, query, header string) {
 		request := &http.Request{
 			URL:    &url.URL{RawQuery: query},
 			Header: make(http.Header),

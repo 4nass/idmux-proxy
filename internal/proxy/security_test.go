@@ -45,8 +45,20 @@ func TestProxyStripsCompositeIdentityAndInternalRequestHeaders(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/check?authuser=0", nil)
 	request.Header.Add("Cookie", "idp=attacker-one")
 	request.Header.Add("Cookie", "idp=attacker-two")
-	request.AddCookie(&http.Cookie{Name: "IDMUX_SESSION", Value: composite.Value})
-	request.AddCookie(&http.Cookie{Name: "keep", Value: "yes"})
+	request.AddCookie(&http.Cookie{
+		Name:     "IDMUX_SESSION",
+		Value:    composite.Value,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	request.AddCookie(&http.Cookie{
+		Name:     "keep",
+		Value:    "yes",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
 	request.Header.Set("X-Auth-User-Index", "0")
 	request.Header.Set("X-IdMux-Internal-Role", "admin")
 	request.Header.Set("X-Forwarded-For", "203.0.113.10")

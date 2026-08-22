@@ -126,7 +126,7 @@ func TestSealerRejectsTrailingPayload(t *testing.T) {
 func FuzzStateValidateDoesNotPanic(f *testing.F) {
 	f.Add(CurrentVersion, -1, "session")
 	f.Add(CurrentVersion+1, 0, strings.Repeat("x", 64))
-	f.Fuzz(func(t *testing.T, version, active int, id string) {
+	f.Fuzz(func(_ *testing.T, version, active int, id string) {
 		state := NewState()
 		state.Version = version
 		state.ActiveIndex = active

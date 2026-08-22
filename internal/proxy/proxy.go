@@ -62,8 +62,7 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	if strings.ContainsAny(cfg.IDPCookieName, " ;,\t\r\n") || strings.ContainsAny(cfg.SessionCookieName, " ;,\t\r\n") {
 		return nil, errors.New("cookie names contain invalid characters")
 	}
-	if (&http.Cookie{Name: cfg.IDPCookieName, Value: "v"}).Valid() != nil ||
-		(&http.Cookie{Name: cfg.SessionCookieName, Value: "v"}).Valid() != nil {
+	if !validCookieName(cfg.IDPCookieName) || !validCookieName(cfg.SessionCookieName) {
 		return nil, errors.New("cookie names contain invalid characters")
 	}
 	sameSite := strings.ToLower(strings.TrimSpace(cfg.CookieSameSite))
@@ -132,6 +131,16 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	}
 	h.proxy = reverseProxy
 	return h, nil
+}
+
+func validCookieName(name string) bool {
+	return (&http.Cookie{
+		Name:     name,
+		Value:    "v",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}).Valid() == nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
