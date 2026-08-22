@@ -44,3 +44,23 @@ func TestResolveTargetRejectsIncompleteRequest(t *testing.T) {
 		t.Fatal("expected request without URL to be rejected")
 	}
 }
+
+func FuzzResolveTargetDoesNotPanic(f *testing.F) {
+	f.Add("authuser=0", "")
+	f.Add("authuser=new&authuser=0", "1")
+	f.Add("%zz", "new")
+
+	f.Fuzz(func(t *testing.T, query, header string) {
+		request := &http.Request{
+			URL:    &url.URL{RawQuery: query},
+			Header: make(http.Header),
+		}
+		if header != "" {
+			request.Header.Add("X-Auth-User-Index", header)
+			if len(header)%2 == 0 {
+				request.Header.Add("X-Auth-User-Index", header)
+			}
+		}
+		_, _ = ResolveTarget(request)
+	})
+}
