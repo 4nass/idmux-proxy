@@ -47,8 +47,11 @@ type requestState struct {
 type requestStateKey struct{}
 
 func New(upstream *url.URL, cfg Config) (*Handler, error) {
-	if upstream == nil || upstream.Host == "" {
-		return nil, errors.New("upstream URL is required")
+	if upstream == nil || upstream.Host == "" || (upstream.Scheme != "http" && upstream.Scheme != "https") {
+		return nil, errors.New("upstream URL must be an http or https URL with a host")
+	}
+	if upstream.User != nil {
+		return nil, errors.New("upstream URL credentials are not allowed")
 	}
 	if cfg.IDPCookieName == "" || cfg.SessionCookieName == "" {
 		return nil, errors.New("cookie names are required")
@@ -59,6 +62,23 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	if strings.ContainsAny(cfg.IDPCookieName, " ;,\t\r\n") || strings.ContainsAny(cfg.SessionCookieName, " ;,\t\r\n") {
 		return nil, errors.New("cookie names contain invalid characters")
 	}
+	if (&http.Cookie{Name: cfg.IDPCookieName, Value: "v"}).Valid() != nil ||
+		(&http.Cookie{Name: cfg.SessionCookieName, Value: "v"}).Valid() != nil {
+		return nil, errors.New("cookie names contain invalid characters")
+	}
+	sameSite := strings.ToLower(strings.TrimSpace(cfg.CookieSameSite))
+	if sameSite == "" {
+		sameSite = "lax"
+	}
+	switch sameSite {
+	case "lax", "strict", "none":
+	default:
+		return nil, errors.New("cookie SameSite must be lax, strict, or none")
+	}
+	if sameSite == "none" && !cfg.CookieSecure {
+		return nil, errors.New("cookie SameSite=none requires secure cookies")
+	}
+	cfg.CookieSameSite = sameSite
 	if cfg.MaxSessions < 1 {
 		return nil, errors.New("maximum session count must be positive")
 	}
@@ -106,9 +126,9 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		removeSensitiveBoundaryHeaders(req.Header)
 	}
 	reverseProxy.ModifyResponse = h.modifyResponse
-	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		h.logger.Error("upstream request failed", "path", r.URL.Path, "error", err.Error())
-		http.Error(w, "upstream request failed", http.StatusBadGateway)
+	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, _ error) {
+		h.logger.Error("upstream request failed", "path", safeRequestPath(r))
+		writeSafeError(w, http.StatusBadGateway, "upstream request failed")
 	}
 	h.proxy = reverseProxy
 	return h, nil
@@ -136,7 +156,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info("used deterministic session fallback", "path", r.URL.Path, "index", target.Index, "new", target.New)
 	}
 	if err := validateTarget(target, state, h.cfg.MaxSessions); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeSafeError(w, http.StatusBadRequest, "invalid session target")
 		return
 	}
 
@@ -291,7 +311,7 @@ func (h *Handler) serveSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.allowedOrigin(r) {
-		http.Error(w, "origin is not trusted", http.StatusForbidden)
+		writeSafeError(w, http.StatusForbidden, "origin is not trusted")
 		return
 	}
 	state, err := h.readState(r)
@@ -426,12 +446,11 @@ func rawCookieName(raw string) string {
 }
 
 func parseSetCookie(raw string) (*http.Cookie, bool) {
-	response := &http.Response{Header: http.Header{"Set-Cookie": []string{raw}}}
-	cookies := response.Cookies()
-	if len(cookies) != 1 {
+	cookie, err := http.ParseSetCookie(raw)
+	if err != nil || cookie.Name == "" || cookie.Valid() != nil {
 		return nil, false
 	}
-	return cookies[0], true
+	return cookie, true
 }
 
 func isDeletionCookie(cookie *http.Cookie) bool {
@@ -472,4 +491,19 @@ func canonicalizeRoutingQuery(requestURL *url.URL, target session.Target) {
 	}
 	query.Set("authuser", value)
 	requestURL.RawQuery = query.Encode()
+}
+
+func safeRequestPath(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+	return r.URL.Path
+}
+
+func writeSafeError(w http.ResponseWriter, status int, message string) {
+	header := w.Header()
+	header.Set("Cache-Control", "no-store")
+	header.Del("Set-Cookie")
+	removeSensitiveBoundaryHeaders(header)
+	http.Error(w, message, status)
 }
