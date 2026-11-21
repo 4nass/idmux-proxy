@@ -74,6 +74,26 @@ func TestQueuedBrowserFlow(t *testing.T) {
 	}
 }
 
+func TestLoginQueueOnlyHandlesBrowserCodeCallbacks(t *testing.T) {
+	for _, test := range []struct {
+		callback string
+		mode     string
+		want     bool
+	}{
+		{"https://app.example.test/callback", "query", true},
+		{"https://app.example.test/callback", "form_post", false},
+		{"myapp://login/callback", "query", false},
+	} {
+		query := url.Values{"response_type": {"code"}, "authuser": {"new"},
+			"redirect_uri": {test.callback}, "response_mode": {test.mode}}
+		req := httptest.NewRequest(http.MethodGet, "/auth?"+query.Encode(), nil)
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		if queueNavigation(req) != test.want {
+			t.Errorf("unexpected queue decision for %s with %s", test.callback, test.mode)
+		}
+	}
+}
+
 func TestLoginQueueRequiresDistinctConfiguredPaths(t *testing.T) {
 	upstream := &url.URL{Scheme: "https", Host: "idp.example.test"}
 	for _, paths := range [][2]string{{"/auth", ""}, {"/auth", "/auth"}, {"relative", "/form"}, {"/auth", "/form?q=x"}} {

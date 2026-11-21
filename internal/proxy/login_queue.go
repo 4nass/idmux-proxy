@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -20,9 +21,14 @@ func (h *Handler) loginStart(r *http.Request) bool {
 func queueNavigation(r *http.Request) bool {
 	query := r.URL.Query()
 	mode := query.Get("response_mode")
+	callback, err := url.Parse(query.Get("redirect_uri"))
+	if err != nil || callback.Host == "" || callback.User != nil ||
+		(callback.Scheme != "http" && callback.Scheme != "https") {
+		return false
+	}
 	return r.Header.Get("Sec-Fetch-Dest") == "document" && query.Get("authuser") == "new" &&
 		query.Get("response_type") == "code" && (mode == "" || mode == "query") &&
-		query.Get("redirect_uri") != "" && query.Get("prompt") != "none"
+		query.Get("prompt") != "none"
 }
 
 func loginFrame(r *http.Request) bool {

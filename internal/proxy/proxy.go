@@ -218,7 +218,11 @@ func (h *Handler) resolveTarget(r *http.Request, state session.State, logout boo
 		case state.ActiveCount() > 1:
 			missing = session.Target{Index: -1} // Logout needs an explicit account.
 		}
-		return session.ResolveTargetWithDefault(r, missing)
+		target, err := session.ResolveTargetWithDefault(r, missing)
+		if err == nil && logout && target.New && state.ActiveCount() > 0 {
+			return session.Target{}, errors.New("logout requires an existing session")
+		}
+		return target, err
 	}
 
 	target, err := session.ResolveTarget(r)

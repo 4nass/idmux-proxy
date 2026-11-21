@@ -32,6 +32,7 @@ func TestLoginAndLogoutRouting(t *testing.T) {
 		{"/form?authuser=2", nil, 0, true},
 		{"/logout?authuser=1", nil, 1, false},
 		{"/logout?authuser=3", nil, 0, true},
+		{"/logout?authuser=new", nil, 0, true},
 		{"/logout", nil, 0, true},
 	} {
 		req := httptest.NewRequest(http.MethodPost, test.path, nil)
@@ -40,7 +41,7 @@ func TestLoginAndLogoutRouting(t *testing.T) {
 		}
 		target, err := h.resolveTarget(req, state, h.isLogoutPath(req.URL.Path))
 		if err == nil {
-			err = validateTarget(target, state, 2)
+			err = validateTarget(target, state, 3)
 		}
 		if (err != nil) != test.wantErr || (err == nil && (target.New || target.Index != test.index)) {
 			t.Errorf("%s headers %v: target %+v, error %v", test.path, test.headers, target, err)
