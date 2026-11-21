@@ -62,3 +62,64 @@ func TestProxyCanonicalizesRoutingInputBeforeUpstream(t *testing.T) {
 		t.Fatalf("upstream received the wrong session cookie: %q", upstreamCookie)
 	}
 }
+
+func TestFreshLoginPathDoesNotReuseAnExistingSession(t *testing.T) {
+	routes := make(chan string, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/seed" {
+			w.Header().Set("Set-Cookie", "idp=seed-session; Path=/")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		routes <- r.URL.Query().Get("authuser") + "|" + r.Header.Get("Cookie")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := secureTestConfig()
+	cfg.FreshLoginPath = "/form"
+	handler, err := New(upstreamURL, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed := httptest.NewRecorder()
+	handler.ServeHTTP(seed, httptest.NewRequest(http.MethodGet, "/seed?authuser=new", nil))
+	cookies := seed.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != cfg.SessionCookieName {
+		t.Fatal("seed request did not create a composite cookie")
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{"form submission", http.MethodPost, "/form", "new|"},
+		{"form submission with explicit index", http.MethodPost, "/form?authuser=0", "new|"},
+		{"form view", http.MethodGet, "/form", "0|idp=seed-session"},
+		{"different submission path", http.MethodPost, "/form/other", "0|idp=seed-session"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, nil)
+			req.AddCookie(cookies[0])
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+			if res.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", res.Code, http.StatusNoContent)
+			}
+			select {
+			case got := <-routes:
+				if got != test.want {
+					t.Fatalf("upstream route and cookie = %q, want %q", got, test.want)
+				}
+			default:
+				t.Fatal("upstream did not receive the request")
+			}
+		})
+	}
+}

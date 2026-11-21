@@ -24,6 +24,7 @@ type Config struct {
 	SessionTTL        time.Duration
 	MaxSessions       int
 	LogoutPathPrefix  string
+	FreshLoginPath    string
 	ControlPathPrefix string
 	TrustedOrigins    []string
 }
@@ -82,6 +83,7 @@ func Load() (Config, error) {
 		SessionTTL:        ttl,
 		MaxSessions:       maxSessions,
 		LogoutPathPrefix:  readString("IDMUX_LOGOUT_PATH_PREFIX", "/protocol/openid-connect/logout"),
+		FreshLoginPath:    strings.TrimSpace(os.Getenv("IDMUX_FRESH_LOGIN_PATH")),
 		ControlPathPrefix: readString("IDMUX_CONTROL_PATH_PREFIX", "/__idmux"),
 		TrustedOrigins:    readList("IDMUX_TRUSTED_ORIGINS"),
 	}, nil

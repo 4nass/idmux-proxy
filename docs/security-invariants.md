@@ -24,6 +24,8 @@ errors, key rotation, and concurrent requests.
 - `authuser=new` sends no IdP identity cookie upstream.
 - Missing or invalid routing input follows one deterministic rule: use session
   `0` when it exists, otherwise start a fresh session context.
+- A POST to the configured fresh login path always uses a fresh session
+  context, including when the form action has no routing selector.
 - A captured `Set-Cookie` changes only the selected session slot.
 - Logout removes only the selected slot and keeps other stable indexes unchanged.
 - Repeated routing query parameters or headers are rejected.

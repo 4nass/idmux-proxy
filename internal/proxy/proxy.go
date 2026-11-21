@@ -25,6 +25,7 @@ type Config struct {
 	SessionTTL        time.Duration
 	MaxSessions       int
 	LogoutPathPrefix  string
+	FreshLoginPath    string
 	ControlPathPrefix string
 	TrustedOrigins    []string
 	Logger            *slog.Logger
@@ -78,6 +79,13 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		return nil, errors.New("cookie SameSite=none requires secure cookies")
 	}
 	cfg.CookieSameSite = sameSite
+	if path := cfg.FreshLoginPath; path != "" {
+		parsed, err := url.ParseRequestURI(path)
+		if err != nil || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") ||
+			parsed.Path != path || parsed.EscapedPath() != path {
+			return nil, errors.New("fresh login path must be an absolute URL path without encoding or a query")
+		}
+	}
 	if cfg.MaxSessions < 1 {
 		return nil, errors.New("maximum session count must be positive")
 	}
@@ -155,7 +163,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestedTarget, err := session.ResolveTarget(r)
+	requestedTarget, err := h.resolveTarget(r)
 	if err != nil {
 		h.logger.Warn("invalid session routing input", "path", r.URL.Path, "error", err.Error())
 		requestedTarget = session.Target{Index: 0}
@@ -181,6 +189,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	requestContext := context.WithValue(r.Context(), requestStateKey{}, request)
 	h.proxy.ServeHTTP(w, r.Clone(requestContext))
+}
+
+func (h *Handler) resolveTarget(r *http.Request) (session.Target, error) {
+	// An IdP can omit authuser from the form action. The configured login
+	// submission must never reuse another account's identity cookie.
+	if h.cfg.FreshLoginPath != "" && r.Method == http.MethodPost && r.URL.Path == h.cfg.FreshLoginPath {
+		return session.Target{New: true, Index: -1}, nil
+	}
+	return session.ResolveTarget(r)
 }
 
 func (h *Handler) readState(r *http.Request) (session.State, error) {

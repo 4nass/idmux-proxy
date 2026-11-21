@@ -32,6 +32,7 @@ func main() {
 		SessionTTL:        cfg.SessionTTL,
 		MaxSessions:       cfg.MaxSessions,
 		LogoutPathPrefix:  cfg.LogoutPathPrefix,
+		FreshLoginPath:    cfg.FreshLoginPath,
 		ControlPathPrefix: cfg.ControlPathPrefix,
 		TrustedOrigins:    cfg.TrustedOrigins,
 		Logger:            logger,
