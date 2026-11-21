@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in</title>
+<style nonce="IDMUX_NONCE">
+body { margin: 0; font: 1rem system-ui, sans-serif; }
+p { margin: 2rem; }
+iframe { border: 0; width: 100%; height: 100dvh; display: block; }
+</style>
+<body data-form-path="IDMUX_FORM_PATH">
+<p role="status" id="status">Waiting for the other sign-in to finish…</p>
+<noscript>Enable JavaScript to sign in.</noscript>
+<script nonce="IDMUX_NONCE">
+'use strict';
+const statusLine = document.getElementById('status');
+
+async function signIn() {
+  if (!navigator.locks) throw new Error('Web Locks unavailable');
+  const returnTo = new URL(new URL(location.href).searchParams.get('redirect_uri'));
+  if (!['https:', 'http:'].includes(returnTo.protocol) || returnTo.username || returnTo.password) {
+    throw new Error('Invalid callback');
+  }
+  await navigator.locks.request('idmux:interactive-login', () => new Promise((_, reject) => {
+    const frame = document.createElement('iframe');
+    frame.title = 'Sign in';
+    // The browser releases this lock when the top-level document goes away.
+    frame.onload = () => {
+      try {
+        const doc = frame.contentDocument;
+        if (!doc) throw new Error('Unexpected login origin');
+        const marker = doc.querySelector('meta[name="idmux-login-redirect"]');
+        if (!marker) {
+          for (const form of doc.forms) {
+            const action = new URL(form.action, doc.URL);
+            if (form.method === 'post' && action.origin === location.origin &&
+                action.pathname === document.body.dataset.formPath) {
+              action.searchParams.set('__idmux_login_frame', '1');
+              form.action = action.href;
+            }
+          }
+          return;
+        }
+        const next = new URL(marker.content, doc.URL);
+        if (!['https:', 'http:'].includes(next.protocol) || next.username || next.password) {
+          throw new Error('Invalid redirect');
+        }
+        if (next.origin === returnTo.origin && next.pathname === returnTo.pathname &&
+            [...returnTo.searchParams].every(([k,v]) => next.searchParams.getAll(k).includes(v))) {
+          location.replace(next.href);
+        } else if (next.origin === location.origin) {
+          frame.contentWindow.location.replace(next.href);
+        } else {
+          throw new Error('Unexpected redirect');
+        }
+      } catch (error) {
+        frame.remove();
+        reject(error);
+      }
+    };
+    statusLine.hidden = true;
+    const auth = new URL(location.href);
+    auth.searchParams.set('__idmux_login_frame', '1');
+    frame.src = auth.href;
+    document.body.append(frame);
+  }));
+}
+
+signIn().catch(() => {
+  statusLine.hidden = false;
+  statusLine.textContent = 'Sign-in could not continue. Close this tab and start again.';
+});
+</script>
+</body>
+</html>

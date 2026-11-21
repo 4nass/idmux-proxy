@@ -26,6 +26,7 @@ type Config struct {
 	MaxSessions       int
 	LogoutPathPrefix  string
 	FreshLoginPath    string
+	LoginStartPath    string
 	ControlPathPrefix string
 	TrustedOrigins    []string
 	Logger            *slog.Logger
@@ -39,10 +40,12 @@ type Handler struct {
 }
 
 type requestState struct {
-	state   session.State
-	target  session.Target
-	logout  bool
-	changed bool
+	state       session.State
+	target      session.Target
+	logout      bool
+	changed     bool
+	queuedFrame bool
+	cleanStart  bool
 }
 
 type requestStateKey struct{}
@@ -79,11 +82,17 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		return nil, errors.New("cookie SameSite=none requires secure cookies")
 	}
 	cfg.CookieSameSite = sameSite
-	if path := cfg.FreshLoginPath; path != "" {
+	if cfg.LoginStartPath != "" && (cfg.FreshLoginPath == "" || cfg.FreshLoginPath == cfg.LoginStartPath) {
+		return nil, errors.New("login queue needs separate authorization and form paths")
+	}
+	for _, path := range []string{cfg.FreshLoginPath, cfg.LoginStartPath} {
+		if path == "" {
+			continue
+		}
 		parsed, err := url.ParseRequestURI(path)
 		if err != nil || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") ||
 			parsed.Path != path || parsed.EscapedPath() != path {
-			return nil, errors.New("fresh login path must be an absolute URL path without encoding or a query")
+			return nil, errors.New("login paths must be absolute URL paths without encoding or a query")
 		}
 	}
 	if cfg.MaxSessions < 1 {
@@ -112,6 +121,10 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		}
 
 		clientCookies := req.Cookies()
+		if value.cleanStart {
+			// An abandoned login may have left an IdP transaction cookie.
+			clientCookies = nil
+		}
 		forwardCookies := make([]string, 0, len(clientCookies)+1)
 		for _, cookie := range clientCookies {
 			if cookie.Name == h.cfg.IDPCookieName || cookie.Name == h.cfg.SessionCookieName {
@@ -129,7 +142,7 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		} else {
 			req.Header.Set("Cookie", strings.Join(forwardCookies, "; "))
 		}
-		canonicalizeRoutingQuery(req.URL, value.target)
+		canonicalizeRoutingQuery(req.URL, value.target, value.queuedFrame)
 		removeSensitiveBoundaryHeaders(req.Header)
 	}
 	reverseProxy.ModifyResponse = h.modifyResponse
@@ -170,10 +183,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	start := h.loginStart(r)
+	if start && target.New && queueNavigation(r) {
+		writeLoginQueue(w, h.cfg.FreshLoginPath)
+		return
+	}
+	frame := h.cfg.LoginStartPath != "" && (start || (r.Method == http.MethodPost && r.URL.Path == h.cfg.FreshLoginPath)) &&
+		loginFrame(r)
+
 	request := &requestState{
-		state:  state,
-		target: target,
-		logout: logout,
+		queuedFrame: frame,
+		cleanStart:  frame && start && target.New,
+		state:       state,
+		target:      target,
+		logout:      logout,
 	}
 	if !logout && !target.New && state.ActiveIndex != target.Index {
 		request.state.ActiveIndex = target.Index
@@ -200,6 +223,9 @@ func (h *Handler) resolveTarget(r *http.Request, state session.State, logout boo
 
 	target, err := session.ResolveTarget(r)
 	if err != nil {
+		if h.loginStart(r) {
+			return session.Target{}, err
+		}
 		h.logger.Warn("invalid session routing input", "path", r.URL.Path, "error", err.Error())
 		target = session.Target{Index: 0}
 	}
@@ -324,6 +350,9 @@ func (h *Handler) modifyResponse(response *http.Response) error {
 	response.Header.Del("Set-Cookie")
 	for _, raw := range outgoing {
 		response.Header.Add("Set-Cookie", raw)
+	}
+	if request.queuedFrame {
+		frameRedirect(response)
 	}
 	return nil
 }
@@ -533,8 +562,11 @@ func removeSensitiveBoundaryHeaders(header http.Header) {
 	}
 }
 
-func canonicalizeRoutingQuery(requestURL *url.URL, target session.Target) {
+func canonicalizeRoutingQuery(requestURL *url.URL, target session.Target, queuedFrame bool) {
 	query := requestURL.Query()
+	if queuedFrame {
+		query.Del("__idmux_login_frame")
+	}
 	value := strconv.Itoa(target.Index)
 	if target.New {
 		value = "new"
