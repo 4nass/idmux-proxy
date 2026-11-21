@@ -1,0 +1,10 @@
+name: idmux-keycloak-test
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+    command: [start-dev, --import-realm, --hostname=http://127.0.0.1:19000]
+    ports:
+      - "127.0.0.1:19080:8080"
+    volumes:
+      - ./realm.json:/opt/keycloak/data/import/realm.json:ro
