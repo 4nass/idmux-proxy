@@ -14,8 +14,9 @@ const oidc = realm + '/protocol/openid-connect';
 const clientID = 'idmux-test';
 const replicaPorts = [19001, 19002];
 
-async function waitFor(url, name) {
+async function waitFor(url, name, proxy) {
   for (let attempt = 0; attempt < 90; attempt++) {
+    if (proxy && !proxy.isRunning()) throw new Error(name + ' exited during startup');
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
       await response.body?.cancel();
@@ -39,6 +40,7 @@ function startProxy(binary, port, key) {
       IDMUX_COOKIE_SECURE: 'false',
       IDMUX_MAX_SESSIONS: '2',
       IDMUX_LOGOUT_PATH_PREFIX: oidc + '/logout',
+      IDMUX_LOGIN_START_PATH: oidc + '/auth',
       IDMUX_FRESH_LOGIN_PATH: realm + '/login-actions/authenticate',
       IDMUX_TRUSTED_ORIGINS: edge,
     },
@@ -96,6 +98,7 @@ async function getJSON(response, name) {
 function tokenResponse(grant) {
   return fetch(edge + oidc + '/token', {
     method: 'POST',
+    redirect: 'error',
     body: new URLSearchParams({ client_id: clientID, ...grant }),
     signal: AbortSignal.timeout(10000),
   });
@@ -107,6 +110,7 @@ async function token(grant) {
 
 async function userinfo(accessToken) {
   return getJSON(await fetch(edge + oidc + '/userinfo', {
+    redirect: 'error',
     headers: { Authorization: 'Bearer ' + accessToken },
     signal: AbortSignal.timeout(10000),
   }), 'userinfo');
@@ -153,8 +157,7 @@ function createClient() {
 
   return {
     handle: (req, res) => {
-      handle(req, res).catch(error => {
-        console.error('Test client callback:', error.message);
+      handle(req, res).catch(() => {
         res.writeHead(500).end('Callback failed');
       });
     },
@@ -178,7 +181,7 @@ function createClient() {
     },
     finish: async (page, flow) => {
       try {
-        await page.waitForURL(url => url.origin === client && url.pathname === '/callback', {
+        await page.waitForURL(url => url.origin === client && url.pathname === '/callback' && url.searchParams.get('state') === flow.state, {
           waitUntil: 'load',
         });
       } catch {
@@ -192,7 +195,8 @@ function createClient() {
   };
 }
 
-async function submitLogin(page, user) {
+async function submitLogin(tab, user) {
+  const page = tab.frameLocator('iframe');
   await page.locator('#username').fill(user);
   await page.locator('#password').fill('idmux-dev-only');
   await page.locator('#kc-login').click();
@@ -223,7 +227,11 @@ async function logOut(page, idToken) {
     post_logout_redirect_uri: client + '/signed-out',
     state,
   });
-  await page.goto(logout.href);
+  try {
+    await page.goto(logout.href);
+  } catch {
+    throw new Error('Browser logout navigation failed');
+  }
   const returned = new URL(page.url());
   assert.ok(returned.origin === client && returned.pathname === '/signed-out', 'logout callback did not arrive');
   assert.ok(returned.searchParams.get('state') === state, 'logout state did not match');
@@ -237,17 +245,21 @@ async function run(binary) {
     const key = randomBytes(32).toString('base64');
     for (const port of replicaPorts) proxies.push(startProxy(binary, port, key));
     const cookieNames = new Set();
+    let requests = 0;
+    const usedReplicas = new Set();
     servers.push(await startServer(19000, (req, res) => {
-      const replica = proxies.find(proxy => proxy.isRunning());
-      if (replica) forward(req, res, replica.port, cookieNames);
-      else res.writeHead(502).end();
+      const live = proxies.filter(proxy => proxy.isRunning());
+      if (!live.length) return res.writeHead(502).end();
+      const replica = live[requests++ % live.length];
+      usedReplicas.add(replica.port);
+      forward(req, res, replica.port, cookieNames);
     }));
     const rp = createClient();
     servers.push(await startServer(19003, rp.handle));
 
     await Promise.all([
       waitFor(upstream + realm + '/.well-known/openid-configuration', 'Keycloak'),
-      ...replicaPorts.map(port => waitFor('http://127.0.0.1:' + port + '/__idmux/readyz', 'IdMux replica')),
+      ...proxies.map(proxy => waitFor('http://127.0.0.1:' + proxy.port + '/__idmux/readyz', 'IdMux replica', proxy)),
     ]);
     browser = await chromium.launch();
     const context = await browser.newContext();
@@ -255,27 +267,38 @@ async function run(binary) {
     const alicePage = await context.newPage();
     const bobPage = await context.newPage();
     const alice = rp.begin('new');
+    const bob = rp.begin('new');
+    const abandoned = await context.newPage();
+    await abandoned.goto(rp.begin('new').address);
+    await abandoned.frameLocator('iframe').locator('#username').waitFor();
     await alicePage.goto(alice.address);
+    await alicePage.getByRole('status').waitFor();
+    await abandoned.close();
+    await alicePage.frameLocator('iframe').locator('#username').waitFor();
+    await bobPage.goto(bob.address);
+    await bobPage.getByRole('status').waitFor();
+    await bobPage.waitForFunction(async () => {
+      const locks = await navigator.locks.query();
+      return locks.pending.some(lock => lock.name === 'idmux:interactive-login');
+    });
+    assert.equal(await bobPage.locator('iframe').count(), 0);
     await submitLogin(alicePage, 'alice');
     const aliceResult = await rp.finish(alicePage, alice);
     assert.equal(aliceResult.profile.preferred_username, 'alice');
     assert.deepEqual(await slots(context), [0], 'first login did not create slot 0');
 
-    const bob = rp.begin('new');
-    await bobPage.goto(bob.address);
     await submitLogin(bobPage, 'bob');
     const bobResult = await rp.finish(bobPage, bob);
     assert.equal(bobResult.profile.preferred_username, 'bob');
     assert.deepEqual(await slots(context), [0, 1], 'second login did not keep both slots');
     assert.ok(cookieNames.has('IDMUX_SESSION'), 'the proxy did not set a composite cookie');
-    assert.ok(!cookieNames.has('KEYCLOAK_IDENTITY'), 'an identity cookie reached the browser');
-    console.log('Browser Set-Cookie names:', [...cookieNames].sort().join(', '));
 
     assert.equal((await silentLogin(alicePage, rp, '0')).profile.preferred_username, 'alice');
     assert.equal((await silentLogin(bobPage, rp, '1')).profile.preferred_username, 'bob');
     const aliceRefresh = await refresh(aliceResult);
     assert.equal((await userinfo(aliceRefresh.access_token)).sub, aliceResult.profile.sub);
 
+    assert.equal(usedReplicas.size, 2, 'both live replicas must handle traffic');
     await proxies[0].stop();
     assert.deepEqual(await slots(context), [0, 1], 'replica switch lost the session list');
     assert.equal((await silentLogin(alicePage, rp, '0')).profile.preferred_username, 'alice');
@@ -293,6 +316,8 @@ async function run(binary) {
     });
     assert.equal(revoked.status, 400, 'logged-out account still had a valid refresh token');
     assert.equal((await revoked.json()).error, 'invalid_grant');
+    assert.ok(!cookieNames.has('KEYCLOAK_IDENTITY'), 'an identity cookie reached the browser');
+    console.log('Browser Set-Cookie names:', [...cookieNames].sort().join(', '));
     console.log('Keycloak OIDC passed: two sessions, account switching, refresh, replica failover, and targeted logout.');
   } finally {
     await browser?.close();

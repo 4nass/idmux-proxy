@@ -8,9 +8,11 @@ binary_dir=$(mktemp -d)
 project="idmux-keycloak-${binary_dir##*.}"
 project=${project,,}
 cleanup() {
-  docker compose -p "$project" -f "$fixture/compose.yml" down --timeout 5
-  rm -f -- "$binary_dir/idmux-proxy"
-  rmdir -- "$binary_dir"
+  local status=$?
+  docker compose -p "$project" -f "$fixture/compose.yml" down --timeout 5 || status=1
+  rm -f -- "$binary_dir/idmux-proxy" || status=1
+  rmdir -- "$binary_dir" || status=1
+  exit "$status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
