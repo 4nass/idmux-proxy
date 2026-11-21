@@ -3,10 +3,11 @@ services:
     image: ${KEYCLOAK_IMAGE:?Set KEYCLOAK_IMAGE to a pinned Keycloak image}
     command: start-dev
     environment:
+      KC_HOSTNAME: http://localhost:9000
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: change-me-local-only
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
 
   idmux:
     build:
@@ -17,6 +18,9 @@ services:
       IDMUX_LISTEN_PORT: ":9000"
       IDMUX_UPSTREAM_URL: http://keycloak:8080
       IDMUX_COOKIE_NAME: KEYCLOAK_IDENTITY
+      IDMUX_FRESH_LOGIN_PATH: ${IDMUX_FRESH_LOGIN_PATH:-}
+      IDMUX_LOGIN_START_PATH: ${IDMUX_LOGIN_START_PATH:-}
+      IDMUX_LOGOUT_PATH_PREFIX: ${IDMUX_LOGOUT_PATH_PREFIX:-/protocol/openid-connect/logout}
       IDMUX_SESSION_COOKIE_NAME: IDMUX_SESSION
       IDMUX_ENCRYPTION_KEY: ${IDMUX_ENCRYPTION_KEY:?Set IDMUX_ENCRYPTION_KEY}
       IDMUX_COOKIE_SECURE: "false"
@@ -25,4 +29,4 @@ services:
     depends_on:
       - keycloak
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"

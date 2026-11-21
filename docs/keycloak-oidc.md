@@ -19,14 +19,15 @@ For a realm called `my-realm`, set:
 | Setting | Value |
 | --- | --- |
 | `IDMUX_COOKIE_NAME` | `KEYCLOAK_IDENTITY` |
+| `IDMUX_LOGIN_START_PATH` | `/realms/my-realm/protocol/openid-connect/auth` |
 | `IDMUX_FRESH_LOGIN_PATH` | `/realms/my-realm/login-actions/authenticate` |
 | `IDMUX_LOGOUT_PATH_PREFIX` | `/realms/my-realm/protocol/openid-connect/logout` |
 
 Start a new account at the authorization endpoint with `authuser=new`. Use
 `authuser=0` and `authuser=1` on later authorization requests to select an
 account. Keycloak does not copy the selector into its login form action.
-IdMux treats a POST to the configured fresh login path as a new login, so a
-successful form submission gets a new slot.
+A form POST with no selector starts a new slot. An explicit index selects an
+existing slot. Invalid or conflicting selectors receive HTTP 400.
 
 For browser logout in this profile, send the slot index and the matching
 `id_token_hint` in the RP-initiated logout request. The client is responsible
@@ -66,19 +67,32 @@ It starts a pinned Keycloak container with a test realm and two local IdMux
 processes, then cleans up that Compose project when it ends. The realm and
 its example credentials are only for this loopback test fixture.
 
-The case checks both account callbacks, silent sign-in for both slots, code
+The case starts a second login while the first form is open and checks that
+closing an unfinished tab releases the next one. It checks both account
+callbacks, silent sign-in for both slots, code
 exchange, token refresh, UserInfo, switching to the second proxy after the
 first stops, and logout for only one account. It also checks that Keycloak
 rejects token refresh for the logged-out account.
 
 ## Limits of this profile
 
-Both sessions can stay active once signed in. Open each login form after
-the previous login completes. In an overlapping attempt on 26.8.2, Keycloak
-returned the second tab to its login action instead of completing the OIDC
-callback. The in-progress authentication cookies are shared by the tabs.
-IdMux also cannot merge writes made at the same time from the same stateless
-cookie.
+With both paths configured, a top-level browser request for a new account in
+code flow with an HTTP or HTTPS query callback opens a waiting page. Use HTTPS
+for the callback in production. The page holds a
+[Web Lock](https://www.w3.org/TR/web-locks/) on the proxy origin while the
+user signs in inside a same-origin frame. The second tab opens its form
+automatically after the first callback or when the first tab closes. The
+client receives the redirect in the top-level tab. Each queued authorization
+starts with an empty upstream Cookie header so Keycloak creates a new login
+transaction even after a tab was closed. Subsequent requests carry the new
+transaction cookies. The IdP must allow its
+login page to be framed by the same origin.
+
+Use HTTPS (or loopback for tests) and a browser with JavaScript, Fetch Metadata
+and Web Locks. The queue coordinates interactive logins in this browser on
+this origin. Other concurrent operations can still write the same composite
+cookie. Clear `IDMUX_LOGIN_START_PATH` on all replicas to turn off the queue;
+finish or close any open login forms before changing this setting.
 
 This profile covers the password form and logout with an ID token hint.
 Keycloak's login status iframe, other authentication steps, SAML, and logout

@@ -21,7 +21,8 @@ decode to exactly 32 bytes.
 | `IDMUX_SESSION_TTL` | `12h` | Maximum age of session state. |
 | `IDMUX_MAX_SESSIONS` | `8` | Maximum number of session slots, from 1 to 32. |
 | `IDMUX_LOGOUT_PATH_PREFIX` | IdP logout path | Path used for targeted logout. |
-| `IDMUX_FRESH_LOGIN_PATH` | empty | Optional exact form path. Every POST on this path starts a new session. |
+| `IDMUX_FRESH_LOGIN_PATH` | empty | Exact form path. A POST without a selector starts a new session. |
+| `IDMUX_LOGIN_START_PATH` | empty | Exact authorization path for queued browser logins. Also set `IDMUX_FRESH_LOGIN_PATH`. |
 | `IDMUX_CONTROL_PATH_PREFIX` | `/__idmux` | Path for health and session endpoints. |
 | `IDMUX_TRUSTED_ORIGINS` | empty | Comma-separated browser origins for the session list. |
 

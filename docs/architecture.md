@@ -44,7 +44,10 @@ The proxy only handles:
 - session index selection;
 - encrypted session state;
 - response cookie capture;
-- targeted logout routing.
+- targeted logout routing;
+- an optional browser queue for same-origin password forms. The browser holds
+  a Web Lock through the login redirect. The proxy processes the response
+  cookies before the browser opens the next form.
 
 The proxy never:
 

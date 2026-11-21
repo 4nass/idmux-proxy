@@ -78,6 +78,8 @@ secret manager. Never commit the key.
 | `IDMUX_COOKIE_SAMESITE` | `lax` | `lax`, `strict`, or `none`. |
 | `IDMUX_SESSION_TTL` | `12h` | Maximum age of encrypted session state. |
 | `IDMUX_MAX_SESSIONS` | `8` | Maximum sessions held in one cookie. |
+| `IDMUX_FRESH_LOGIN_PATH` | empty | Form submission path for a fresh login when no account is selected. |
+| `IDMUX_LOGIN_START_PATH` | empty | Authorization path for the optional browser login queue. |
 | `IDMUX_LOGOUT_PATH_PREFIX` | `/protocol/openid-connect/logout` | IdP logout path prefix. |
 | `IDMUX_TRUSTED_ORIGINS` | empty | Comma-separated origins allowed for the account list API. |
 
