@@ -63,7 +63,7 @@ func TestProxyCanonicalizesRoutingInputBeforeUpstream(t *testing.T) {
 	}
 }
 
-func TestFreshLoginPathDoesNotReuseAnExistingSession(t *testing.T) {
+func TestFreshLoginPathUsesTheSelectedSession(t *testing.T) {
 	routes := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/seed" {
@@ -99,7 +99,7 @@ func TestFreshLoginPathDoesNotReuseAnExistingSession(t *testing.T) {
 		want   string
 	}{
 		{"form submission", http.MethodPost, "/form", "new|"},
-		{"form submission with explicit index", http.MethodPost, "/form?authuser=0", "new|"},
+		{"form submission with explicit index", http.MethodPost, "/form?authuser=0", "0|idp=seed-session"},
 		{"form view", http.MethodGet, "/form", "0|idp=seed-session"},
 		{"different submission path", http.MethodPost, "/form/other", "0|idp=seed-session"},
 	}

@@ -163,16 +163,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestedTarget, err := h.resolveTarget(r)
-	if err != nil {
-		h.logger.Warn("invalid session routing input", "path", r.URL.Path, "error", err.Error())
-		requestedTarget = session.Target{Index: 0}
-	}
-	target, fallback := fallbackTarget(requestedTarget, state)
-	if fallback {
-		h.logger.Info("used deterministic session fallback", "path", r.URL.Path, "index", target.Index, "new", target.New)
-	}
-	if err := validateTarget(target, state, h.cfg.MaxSessions); err != nil {
+	logout := h.isLogoutPath(r.URL.Path)
+	target, err := h.resolveTarget(r, state, logout)
+	if err != nil || validateTarget(target, state, h.cfg.MaxSessions) != nil {
 		writeSafeError(w, http.StatusBadRequest, "invalid session target")
 		return
 	}
@@ -180,9 +173,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	request := &requestState{
 		state:  state,
 		target: target,
-		logout: h.isLogoutPath(r.URL.Path),
+		logout: logout,
 	}
-	if !target.New && state.ActiveIndex != target.Index {
+	if !logout && !target.New && state.ActiveIndex != target.Index {
 		request.state.ActiveIndex = target.Index
 		request.changed = true
 	}
@@ -191,13 +184,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r.Clone(requestContext))
 }
 
-func (h *Handler) resolveTarget(r *http.Request) (session.Target, error) {
-	// An IdP can omit authuser from the form action. The configured login
-	// submission must never reuse another account's identity cookie.
-	if h.cfg.FreshLoginPath != "" && r.Method == http.MethodPost && r.URL.Path == h.cfg.FreshLoginPath {
-		return session.Target{New: true, Index: -1}, nil
+func (h *Handler) resolveTarget(r *http.Request, state session.State, logout bool) (session.Target, error) {
+	freshForm := h.cfg.FreshLoginPath != "" && r.Method == http.MethodPost && r.URL.Path == h.cfg.FreshLoginPath
+	if freshForm || logout {
+		// Choose the default only when the caller omitted both selectors.
+		missing := session.Target{}
+		switch {
+		case freshForm || state.ActiveCount() == 0:
+			missing = session.Target{New: true, Index: -1}
+		case state.ActiveCount() > 1:
+			missing = session.Target{Index: -1} // Logout needs an explicit account.
+		}
+		return session.ResolveTargetWithDefault(r, missing)
 	}
-	return session.ResolveTarget(r)
+
+	target, err := session.ResolveTarget(r)
+	if err != nil {
+		h.logger.Warn("invalid session routing input", "path", r.URL.Path, "error", err.Error())
+		target = session.Target{Index: 0}
+	}
+	target, fallback := fallbackTarget(target, state)
+	if fallback {
+		h.logger.Info("used deterministic session fallback", "path", r.URL.Path, "index", target.Index, "new", target.New)
+	}
+	return target, nil
 }
 
 func (h *Handler) readState(r *http.Request) (session.State, error) {
@@ -247,7 +257,8 @@ func (h *Handler) modifyResponse(response *http.Response) error {
 	}
 	state := request.state.Clone()
 	changed := request.changed
-	if request.logout && !request.target.New {
+	success := response.StatusCode >= 200 && response.StatusCode < 400
+	if request.logout && !request.target.New && response.StatusCode == http.StatusNoContent {
 		changed = state.Remove(request.target.Index) || changed
 	}
 
@@ -267,9 +278,15 @@ func (h *Handler) modifyResponse(response *http.Response) error {
 		if !ok {
 			return errors.New("upstream returned an invalid IdP Set-Cookie header")
 		}
+		if request.logout {
+			if success && isDeletionCookie(parsed) && !request.target.New {
+				changed = state.Remove(request.target.Index) || changed
+			}
+			continue
+		}
 		changed = true
-		if request.logout || isDeletionCookie(parsed) {
-			if !request.logout && !request.target.New {
+		if isDeletionCookie(parsed) {
+			if !request.target.New {
 				state.Remove(request.target.Index)
 			}
 			continue

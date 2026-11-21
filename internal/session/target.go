@@ -3,6 +3,7 @@ package session
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -13,11 +14,20 @@ type Target struct {
 }
 
 func ResolveTarget(r *http.Request) (Target, error) {
+	return ResolveTargetWithDefault(r, Target{Index: 0})
+}
+
+// ResolveTargetWithDefault uses missing only when both selectors are absent.
+func ResolveTargetWithDefault(r *http.Request, missing Target) (Target, error) {
 	if r == nil || r.URL == nil {
 		return Target{}, errors.New("request URL is required")
 	}
 
-	queryValue, err := singleTargetValue(r.URL.Query()["authuser"], "authuser query")
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return Target{}, errors.New("invalid routing query")
+	}
+	queryValue, err := singleTargetValue(query["authuser"], "authuser query")
 	if err != nil {
 		return Target{}, err
 	}
@@ -33,7 +43,7 @@ func ResolveTarget(r *http.Request) (Target, error) {
 		value = headerValue
 	}
 	if value == "" {
-		value = "0"
+		return missing, nil
 	}
 	if value == "new" {
 		return Target{New: true, Index: -1}, nil
@@ -52,5 +62,9 @@ func singleTargetValue(values []string, source string) (string, error) {
 	if len(values) == 0 {
 		return "", nil
 	}
-	return strings.TrimSpace(values[0]), nil
+	value := strings.TrimSpace(values[0])
+	if value == "" {
+		return "", errors.New(source + " is empty")
+	}
+	return value, nil
 }
