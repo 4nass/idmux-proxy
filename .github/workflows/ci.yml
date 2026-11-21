@@ -15,6 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  keycloak-oidc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install the test browser
+        working-directory: integration/keycloak
+        run: |
+          npm ci --ignore-scripts
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Run Keycloak browser tests
+        run: bash integration/keycloak/run.sh
+
   test:
     name: test
     runs-on: ubuntu-latest
