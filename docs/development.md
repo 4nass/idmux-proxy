@@ -43,3 +43,8 @@ After building the local image, scan it before using it:
 ```text
 trivy image --severity HIGH,CRITICAL --ignore-unfixed idmux-proxy:local
 ```
+
+## Browser integration
+
+See the [Keycloak OIDC profile](keycloak-oidc.md) to run the two-account
+Chromium test with a real Keycloak server and two local IdMux processes.
