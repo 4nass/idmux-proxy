@@ -47,8 +47,32 @@ The endpoint exposes these counters:
 It also exposes `idmux_request_duration_seconds` and
 `idmux_upstream_duration_seconds` histograms. An upstream error is a network
 or response-processing failure, or an upstream HTTP status of 500 or higher.
+Upstream duration measures time until the IdP response headers arrive.
+Request duration includes proxying the response to the browser.
 Logout counts requests to the configured logout path. Counters have no labels,
 so user data cannot become a metric label.
+
+Example with synthetic values:
+
+```text
+# TYPE idmux_upstream_errors_total counter
+idmux_upstream_errors_total 1
+# TYPE idmux_request_duration_seconds histogram
+idmux_request_duration_seconds_bucket{le="0.005"} 1
+idmux_request_duration_seconds_bucket{le="0.01"} 2
+idmux_request_duration_seconds_bucket{le="0.025"} 2
+idmux_request_duration_seconds_bucket{le="0.05"} 2
+idmux_request_duration_seconds_bucket{le="0.1"} 2
+idmux_request_duration_seconds_bucket{le="0.25"} 2
+idmux_request_duration_seconds_bucket{le="0.5"} 2
+idmux_request_duration_seconds_bucket{le="1"} 2
+idmux_request_duration_seconds_bucket{le="2.5"} 2
+idmux_request_duration_seconds_bucket{le="5"} 2
+idmux_request_duration_seconds_bucket{le="10"} 2
+idmux_request_duration_seconds_bucket{le="+Inf"} 2
+idmux_request_duration_seconds_sum 0.014
+idmux_request_duration_seconds_count 2
+```
 
 Restrict access to the metrics endpoint with network policy or the deployment
 gateway if metrics should be private. Metrics contain aggregate service health,
