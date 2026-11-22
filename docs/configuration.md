@@ -21,7 +21,7 @@ decode to exactly 32 bytes.
 | `IDMUX_SESSION_TTL` | `12h` | Maximum age of session state. |
 | `IDMUX_MAX_SESSIONS` | `8` | Maximum number of session slots, from 1 to 32. |
 | `IDMUX_LOGOUT_PATH_PREFIX` | IdP logout path | Path used for targeted logout. |
-| `IDMUX_CONTROL_PATH_PREFIX` | `/__idmux` | Path for health and session endpoints. |
+| `IDMUX_CONTROL_PATH_PREFIX` | `/__idmux` | Path for health, sessions, and metrics endpoints. |
 | `IDMUX_TRUSTED_ORIGINS` | empty | Comma-separated browser origins for the session list. |
 
 ## Safe defaults
@@ -32,6 +32,11 @@ token, cookie, or real user data in Git.
 
 `IDMUX_COOKIE_SECURE=false` is accepted only when `IDMUX_ENV=development`.
 `IDMUX_COOKIE_SAMESITE=none` also needs `IDMUX_COOKIE_SECURE=true`.
+
+The metrics endpoint is `GET /__idmux/metrics` by default. Restrict it at
+the network or deployment gateway if it should only be available to scrapers.
+See the [observability guide](observability.md) for safe log fields and metric
+names.
 
 ## Key rotation
 

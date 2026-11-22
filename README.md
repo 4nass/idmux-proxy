@@ -102,6 +102,10 @@ Internal endpoints:
 - `GET /__idmux/healthz`
 - `GET /__idmux/readyz`
 - `GET /__idmux/sessions`
+- `GET /__idmux/metrics`
+
+Logs and metrics use safe values. See the
+[observability guide](docs/observability.md) for the fields and redaction rules.
 
 The sessions endpoint returns indexes and timestamps only. It never returns the
 encrypted IdP session IDs.

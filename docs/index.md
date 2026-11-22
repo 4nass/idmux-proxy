@@ -96,6 +96,7 @@ SAML meaning, own user profiles, or make business authorization decisions.
 - Use JSON logs with useful event names and status values.
 - Never log cookies, tokens, keys, or IdP session IDs.
 - Keep log retention short and protect access to production logs.
+- Use the [observability guide](observability.md) for metrics and redaction rules.
 
 ## Learn more
 
