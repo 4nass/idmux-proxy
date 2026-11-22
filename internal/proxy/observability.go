@@ -64,6 +64,10 @@ type observedResponseWriter struct {
 }
 
 func (w *observedResponseWriter) WriteHeader(status int) {
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(status)
+		return
+	}
 	if !w.wrote {
 		w.status, w.wrote = status, true
 	}

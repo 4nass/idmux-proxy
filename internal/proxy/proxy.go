@@ -388,7 +388,10 @@ func (h *Handler) serveSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	state, err := h.readState(r)
 	if err != nil {
-		h.logger.Warn("invalid session cookie", "path", r.URL.Path, "error", err.Error())
+		h.logger.Warn("invalid session cookie",
+			"event", "invalid_cookie",
+			"request_id", requestIDFrom(r.Context()),
+			"path", safeLogPath(r, h.cfg))
 		h.invalidCookieResponse(w, r)
 		return
 	}

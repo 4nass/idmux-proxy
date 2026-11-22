@@ -175,6 +175,61 @@ func TestMetricsEndpointAllowsOnlyGet(t *testing.T) {
 	}
 }
 
+func TestSessionListInvalidCookieLogIsRedacted(t *testing.T) {
+	const querySecret = "private-session-query"
+	const cookieSecret = "private-session-cookie"
+	var logs bytes.Buffer
+	handler := newBoundaryTestHandler(t, mustObservabilityUpstream(t))
+	handler.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.test/control/sessions?token="+querySecret, nil)
+	request.AddCookie(&http.Cookie{
+		Name: "IDMUX_SESSION", Value: cookieSecret, Path: "/",
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("invalid cookie recovery status = %d", response.Code)
+	}
+	requestID := response.Header().Get("X-Request-ID")
+	if len(requestID) != 32 {
+		t.Fatalf("invalid control request ID %q", requestID)
+	}
+	for _, secret := range []string{querySecret, cookieSecret} {
+		if strings.Contains(logs.String(), secret) {
+			t.Fatalf("invalid-cookie control log exposed %q", secret)
+		}
+	}
+	for _, field := range []string{
+		`"event":"invalid_cookie"`,
+		`"path":"/__idmux/sessions"`,
+		`"status":303`,
+		`"duration_ms"`,
+		requestID,
+	} {
+		if !strings.Contains(logs.String(), field) {
+			t.Errorf("control log is missing %q", field)
+		}
+	}
+}
+
+func TestObservedWriterRecordsFinalStatusAfterInformationalResponse(t *testing.T) {
+	response := httptest.NewRecorder()
+	observed := &observedResponseWriter{ResponseWriter: response, status: http.StatusOK}
+	observed.WriteHeader(http.StatusEarlyHints)
+	observed.WriteHeader(http.StatusNoContent)
+	if observed.status != http.StatusNoContent {
+		t.Fatalf("final status = %d, want %d", observed.status, http.StatusNoContent)
+	}
+
+	upgrade := &observedResponseWriter{ResponseWriter: httptest.NewRecorder(), status: http.StatusOK}
+	upgrade.WriteHeader(http.StatusSwitchingProtocols)
+	upgrade.WriteHeader(http.StatusOK)
+	if upgrade.status != http.StatusSwitchingProtocols {
+		t.Fatalf("upgrade status = %d, want %d", upgrade.status, http.StatusSwitchingProtocols)
+	}
+}
+
 func metricValue(t *testing.T, exposition, name string) uint64 {
 	t.Helper()
 	for _, line := range strings.Split(exposition, "\n") {
