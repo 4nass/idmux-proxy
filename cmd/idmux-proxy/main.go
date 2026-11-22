@@ -53,7 +53,7 @@ func main() {
 	contextValue, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("proxy started", "listen_addr", cfg.ListenAddr, "upstream", cfg.UpstreamURL.String())
+		logger.Info("proxy started", "listen_addr", cfg.ListenAddr, "upstream_host", cfg.UpstreamURL.Host)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("proxy stopped unexpectedly", "error", err)
 			stop()

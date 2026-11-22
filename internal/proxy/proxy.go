@@ -31,17 +31,20 @@ type Config struct {
 }
 
 type Handler struct {
-	cfg    Config
-	sealer *session.Sealer
-	proxy  *httputil.ReverseProxy
-	logger *slog.Logger
+	cfg     Config
+	sealer  *session.Sealer
+	proxy   *httputil.ReverseProxy
+	logger  *slog.Logger
+	metrics *proxyMetrics
 }
 
 type requestState struct {
-	state   session.State
-	target  session.Target
-	logout  bool
-	changed bool
+	state         session.State
+	target        session.Target
+	logout        bool
+	changed       bool
+	requestID     string
+	upstreamError bool
 }
 
 type requestStateKey struct{}
@@ -93,7 +96,7 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		logger = slog.Default()
 	}
 
-	h := &Handler{cfg: cfg, sealer: sealer, logger: logger}
+	h := &Handler{cfg: cfg, sealer: sealer, logger: logger, metrics: &proxyMetrics{}}
 	reverseProxy := &httputil.ReverseProxy{}
 	reverseProxy.Rewrite = func(proxyRequest *httputil.ProxyRequest) {
 		proxyRequest.SetURL(upstream)
@@ -102,7 +105,6 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		if value == nil {
 			return
 		}
-
 		clientCookies := req.Cookies()
 		forwardCookies := make([]string, 0, len(clientCookies)+1)
 		for _, cookie := range clientCookies {
@@ -121,12 +123,19 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 		} else {
 			req.Header.Set("Cookie", strings.Join(forwardCookies, "; "))
 		}
+		req.Header.Set("X-Request-ID", value.requestID)
 		canonicalizeRoutingQuery(req.URL, value.target)
 		removeSensitiveBoundaryHeaders(req.Header)
 	}
+	reverseProxy.Transport = measuredTransport{next: http.DefaultTransport, metrics: h.metrics}
 	reverseProxy.ModifyResponse = h.modifyResponse
 	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, _ error) {
-		h.logger.Error("upstream request failed", "path", safeRequestPath(r))
+		recordUpstreamError(r, h.metrics)
+		h.logger.Error("upstream request failed",
+			"event", "upstream_error",
+			"request_id", requestIDFrom(r.Context()),
+			"path", safeLogPath(r, h.cfg),
+			"status", http.StatusBadGateway)
 		writeSafeError(w, http.StatusBadGateway, "upstream request failed")
 	}
 	h.proxy = reverseProxy
@@ -144,35 +153,71 @@ func validCookieName(name string) bool {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.serveControl(w, r) {
+	requestID, err := newRequestID()
+	if err != nil {
+		writeSafeError(w, http.StatusInternalServerError, "request could not be processed")
+		return
+	}
+	started := time.Now()
+	observed := &observedResponseWriter{ResponseWriter: w, status: http.StatusOK}
+	observed.Header().Set("X-Request-ID", requestID)
+	r = r.Clone(context.WithValue(r.Context(), requestIDKey{}, requestID))
+	logoutRequest := h.isLogoutPath(r.URL.Path)
+	if logoutRequest {
+		h.metrics.logouts.Add(1)
+	}
+	var targetIndex *int
+	defer func() {
+		duration := time.Since(started)
+		h.metrics.requests.Add(1)
+		h.metrics.requestDuration.observe(duration)
+		attributes := []any{
+			"event", "request_completed",
+			"request_id", requestID,
+			"method", safeMethod(r.Method),
+			"path", safeLogPath(r, h.cfg),
+			"status", observed.status,
+			"duration_ms", duration.Milliseconds(),
+		}
+		if targetIndex != nil {
+			attributes = append(attributes, "session_index", *targetIndex)
+		}
+		h.logger.Info("request completed", attributes...)
+	}()
+	if h.serveControl(observed, r) {
 		return
 	}
 
 	state, err := h.readState(r)
 	if err != nil {
-		h.logger.Warn("invalid session cookie", "path", r.URL.Path, "error", err.Error())
-		h.invalidCookieResponse(w, r)
+		h.logger.Warn("invalid session cookie", "event", "invalid_cookie", "request_id", requestID, "path", safeLogPath(r, h.cfg))
+		h.invalidCookieResponse(observed, r)
 		return
 	}
 
 	requestedTarget, err := session.ResolveTarget(r)
 	if err != nil {
-		h.logger.Warn("invalid session routing input", "path", r.URL.Path, "error", err.Error())
+		h.logger.Warn("invalid session routing input", "event", "invalid_routing_input", "request_id", requestID, "path", safeLogPath(r, h.cfg))
 		requestedTarget = session.Target{Index: 0}
 	}
 	target, fallback := fallbackTarget(requestedTarget, state)
 	if fallback {
-		h.logger.Info("used deterministic session fallback", "path", r.URL.Path, "index", target.Index, "new", target.New)
+		h.metrics.fallbacks.Add(1)
 	}
 	if err := validateTarget(target, state, h.cfg.MaxSessions); err != nil {
-		writeSafeError(w, http.StatusBadRequest, "invalid session target")
+		writeSafeError(observed, http.StatusBadRequest, "invalid session target")
 		return
 	}
 
 	request := &requestState{
-		state:  state,
-		target: target,
-		logout: h.isLogoutPath(r.URL.Path),
+		state:     state,
+		target:    target,
+		logout:    h.isLogoutPath(r.URL.Path),
+		requestID: requestID,
+	}
+	if !target.New && target.Index >= 0 {
+		index := target.Index
+		targetIndex = &index
 	}
 	if !target.New && state.ActiveIndex != target.Index {
 		request.state.ActiveIndex = target.Index
@@ -180,7 +225,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestContext := context.WithValue(r.Context(), requestStateKey{}, request)
-	h.proxy.ServeHTTP(w, r.Clone(requestContext))
+	h.proxy.ServeHTTP(observed, r.Clone(requestContext))
 }
 
 func (h *Handler) readState(r *http.Request) (session.State, error) {
@@ -189,9 +234,14 @@ func (h *Handler) readState(r *http.Request) (session.State, error) {
 		return session.NewState(), nil
 	}
 	if err != nil {
+		h.metrics.invalidCookies.Add(1)
 		return session.State{}, err
 	}
-	return h.sealer.Open(cookie.Value, h.cfg.MaxSessions)
+	state, err := h.sealer.Open(cookie.Value, h.cfg.MaxSessions)
+	if err != nil {
+		h.metrics.invalidCookies.Add(1)
+	}
+	return state, err
 }
 
 func fallbackTarget(target session.Target, state session.State) (session.Target, bool) {
@@ -224,6 +274,7 @@ func (h *Handler) modifyResponse(response *http.Response) error {
 	if response.Request == nil {
 		return errors.New("upstream response has no request")
 	}
+	response.Header.Set("X-Request-ID", requestIDFrom(response.Request.Context()))
 	request, _ := response.Request.Context().Value(requestStateKey{}).(*requestState)
 	if request == nil {
 		return nil
@@ -309,9 +360,21 @@ func (h *Handler) serveControl(w http.ResponseWriter, r *http.Request) bool {
 	case prefix + "/sessions":
 		h.serveSessions(w, r)
 		return true
+	case prefix + "/metrics":
+		h.serveMetrics(w, r)
+		return true
 	default:
 		return false
 	}
+}
+
+func (h *Handler) serveMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		writeSafeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	h.metrics.writePrometheus(w)
 }
 
 func (h *Handler) serveSessions(w http.ResponseWriter, r *http.Request) {
@@ -507,13 +570,6 @@ func canonicalizeRoutingQuery(requestURL *url.URL, target session.Target) {
 	}
 	query.Set("authuser", value)
 	requestURL.RawQuery = query.Encode()
-}
-
-func safeRequestPath(r *http.Request) string {
-	if r == nil || r.URL == nil {
-		return ""
-	}
-	return r.URL.Path
 }
 
 func writeSafeError(w http.ResponseWriter, status int, message string) {
