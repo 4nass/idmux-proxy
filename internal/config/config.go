@@ -122,7 +122,7 @@ func readKeys() ([][]byte, error) {
 		return nil, errors.New("set only one of IDMUX_ENCRYPTION_KEY or IDMUX_ENCRYPTION_KEY_FILE")
 	}
 	if keyFile != "" {
-		value, err := os.ReadFile(keyFile) // #nosec G304 -- The file path is startup configuration provided by the trusted operator.
+		value, err := os.ReadFile(keyFile) // #nosec G304 G703 -- The path is trusted operator startup config for a mounted secret; request data cannot set it.
 		if err != nil {
 			return nil, fmt.Errorf("read IDMUX_ENCRYPTION_KEY_FILE: %w", err)
 		}
