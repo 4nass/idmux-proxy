@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	configpkg "github.com/4nass/idmux-proxy/internal/config"
 )
 
 func TestNewRejectsUnsafeSecurityConfiguration(t *testing.T) {
@@ -55,6 +57,15 @@ func TestNewRejectsUnsafeSecurityConfiguration(t *testing.T) {
 				return config
 			}(),
 		},
+		{
+			name:     "upstream timeout over maximum",
+			upstream: validURL,
+			config: func() Config {
+				config := secureTestConfig()
+				config.UpstreamTimeout = configpkg.MaxUpstreamTimeout + time.Second
+				return config
+			}(),
+		},
 	}
 
 	for _, test := range tests {
@@ -85,12 +96,14 @@ func TestNewNormalizesDefaultSameSite(t *testing.T) {
 
 func secureTestConfig() Config {
 	return Config{
-		IDPCookieName:     "idp",
-		SessionCookieName: "IDMUX_SESSION",
-		CookieKeys:        [][]byte{[]byte("01234567890123456789012345678901")},
-		CookieSecure:      true,
-		CookieSameSite:    "lax",
-		SessionTTL:        time.Hour,
-		MaxSessions:       2,
+		IDPCookieName:       "idp",
+		SessionCookieName:   "IDMUX_SESSION",
+		CookieKeys:          [][]byte{[]byte("01234567890123456789012345678901")},
+		CookieSecure:        true,
+		CookieSameSite:      "lax",
+		SessionTTL:          time.Hour,
+		MaxSessions:         2,
+		UpstreamTimeout:     configpkg.DefaultUpstreamTimeout,
+		MaxRequestBodyBytes: configpkg.DefaultMaxRequestBodyBytes,
 	}
 }

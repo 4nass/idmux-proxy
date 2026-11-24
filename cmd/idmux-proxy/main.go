@@ -14,6 +14,12 @@ import (
 	"github.com/4nass/idmux-proxy/internal/proxy"
 )
 
+const (
+	serverReadTimeout   = 30 * time.Second
+	serverWriteGrace    = 10 * time.Second
+	serverHeaderTimeout = 10 * time.Second
+)
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
@@ -24,17 +30,19 @@ func main() {
 		os.Exit(1)
 	}
 	handler, err := proxy.New(cfg.UpstreamURL, proxy.Config{
-		IDPCookieName:     cfg.IDPCookieName,
-		SessionCookieName: cfg.SessionCookieName,
-		CookieKeys:        cfg.CookieKeys,
-		CookieSecure:      cfg.CookieSecure,
-		CookieSameSite:    cfg.CookieSameSite,
-		SessionTTL:        cfg.SessionTTL,
-		MaxSessions:       cfg.MaxSessions,
-		LogoutPathPrefix:  cfg.LogoutPathPrefix,
-		ControlPathPrefix: cfg.ControlPathPrefix,
-		TrustedOrigins:    cfg.TrustedOrigins,
-		Logger:            logger,
+		IDPCookieName:       cfg.IDPCookieName,
+		SessionCookieName:   cfg.SessionCookieName,
+		CookieKeys:          cfg.CookieKeys,
+		CookieSecure:        cfg.CookieSecure,
+		CookieSameSite:      cfg.CookieSameSite,
+		SessionTTL:          cfg.SessionTTL,
+		MaxSessions:         cfg.MaxSessions,
+		MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
+		UpstreamTimeout:     cfg.UpstreamTimeout,
+		LogoutPathPrefix:    cfg.LogoutPathPrefix,
+		ControlPathPrefix:   cfg.ControlPathPrefix,
+		TrustedOrigins:      cfg.TrustedOrigins,
+		Logger:              logger,
 	})
 	if err != nil {
 		logger.Error("proxy setup failed", "error", err)
@@ -44,9 +52,9 @@ func main() {
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		ReadHeaderTimeout: serverHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      cfg.UpstreamTimeout + serverReadTimeout + serverWriteGrace,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
