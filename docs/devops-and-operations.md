@@ -71,11 +71,12 @@ session IDs. Keep retention short and protect production log access.
 
 The release workflow runs only for tags matching `v*.*.*`. It:
 
-- runs the release tests;
-- builds a release image and blocks on HIGH or CRITICAL Trivy findings;
-- builds Linux AMD64 and ARM64 images;
-- publishes the image to GHCR;
-- creates SBOM and provenance data.
+- runs tests, lint, CodeQL, and vulnerability checks before publication;
+- builds and scans Linux AMD64 and ARM64 images for HIGH or CRITICAL findings;
+- publishes the scanned image archives to GHCR without rebuilding them;
+- creates an SBOM attestation for each platform and provenance for the image index.
+
+See the [deployment guide](deployment.md) for Compose and Kubernetes examples.
 
 Deploy a released image by immutable digest:
 

@@ -1,0 +1,44 @@
+services:
+  idmux:
+    image: ghcr.io/4nass/idmux-proxy@${IDMUX_IMAGE_DIGEST:?Set IDMUX_IMAGE_DIGEST to sha256:<published-digest>}
+    restart: unless-stopped
+    read_only: true
+    user: "65532:65532"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.50
+    expose:
+      - "9000"
+    environment:
+      IDMUX_ENV: production
+      IDMUX_LISTEN_PORT: ":9000"
+      IDMUX_UPSTREAM_URL: ${IDMUX_UPSTREAM_URL:?Set IDMUX_UPSTREAM_URL to the HTTPS IdP URL}
+      IDMUX_COOKIE_NAME: ${IDMUX_COOKIE_NAME:-KEYCLOAK_IDENTITY}
+      IDMUX_SESSION_COOKIE_NAME: IDMUX_SESSION
+      IDMUX_ENCRYPTION_KEY_FILE: /run/secrets/idmux_encryption_key
+      IDMUX_COOKIE_SECURE: "true"
+      IDMUX_COOKIE_SAMESITE: lax
+      IDMUX_SESSION_TTL: 12h
+      IDMUX_MAX_SESSIONS: "8"
+      IDMUX_MAX_REQUEST_BODY_BYTES: "1048576"
+      IDMUX_UPSTREAM_TIMEOUT: 45s
+      IDMUX_TRUSTED_ORIGINS: ${IDMUX_TRUSTED_ORIGINS:?Set the public HTTPS application origin}
+    networks:
+      - edge
+      - upstream
+    secrets:
+      - idmux_encryption_key
+
+networks:
+  edge:
+    external: true
+    name: ${IDMUX_EDGE_NETWORK:-edge}
+  upstream: {}
+
+secrets:
+  idmux_encryption_key:
+    file: ${IDMUX_ENCRYPTION_KEY_FILE:?Set IDMUX_ENCRYPTION_KEY_FILE to the mounted secret file}

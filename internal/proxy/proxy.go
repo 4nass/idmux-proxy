@@ -13,21 +13,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/4nass/idmux-proxy/internal/config"
 	"github.com/4nass/idmux-proxy/internal/session"
 )
 
 type Config struct {
-	IDPCookieName     string
-	SessionCookieName string
-	CookieKeys        [][]byte
-	CookieSecure      bool
-	CookieSameSite    string
-	SessionTTL        time.Duration
-	MaxSessions       int
-	LogoutPathPrefix  string
-	ControlPathPrefix string
-	TrustedOrigins    []string
-	Logger            *slog.Logger
+	IDPCookieName       string
+	SessionCookieName   string
+	CookieKeys          [][]byte
+	CookieSecure        bool
+	CookieSameSite      string
+	SessionTTL          time.Duration
+	MaxSessions         int
+	MaxRequestBodyBytes int64
+	UpstreamTimeout     time.Duration
+	LogoutPathPrefix    string
+	ControlPathPrefix   string
+	TrustedOrigins      []string
+	Logger              *slog.Logger
 }
 
 type Handler struct {
@@ -87,6 +90,18 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	if cfg.SessionTTL <= 0 {
 		return nil, errors.New("session lifetime must be positive")
 	}
+	if cfg.UpstreamTimeout == 0 {
+		cfg.UpstreamTimeout = config.DefaultUpstreamTimeout
+	}
+	if cfg.UpstreamTimeout < config.MinUpstreamTimeout || cfg.UpstreamTimeout > config.MaxUpstreamTimeout {
+		return nil, errors.New("upstream timeout must be between 1 second and 5 minutes")
+	}
+	if cfg.MaxRequestBodyBytes == 0 {
+		cfg.MaxRequestBodyBytes = config.DefaultMaxRequestBodyBytes
+	}
+	if cfg.MaxRequestBodyBytes < 1 || cfg.MaxRequestBodyBytes > config.MaxRequestBodyBytes {
+		return nil, errors.New("maximum request body size must be between 1 byte and 1 GiB")
+	}
 	sealer, err := session.NewSealer(cfg.CookieKeys...)
 	if err != nil {
 		return nil, err
@@ -129,7 +144,12 @@ func New(upstream *url.URL, cfg Config) (*Handler, error) {
 	}
 	reverseProxy.Transport = measuredTransport{next: http.DefaultTransport, metrics: h.metrics}
 	reverseProxy.ModifyResponse = h.modifyResponse
-	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, _ error) {
+	reverseProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeSafeError(w, http.StatusRequestEntityTooLarge, "request body is too large")
+			return
+		}
 		recordUpstreamError(r, h.metrics)
 		h.logger.Error("upstream request failed",
 			"event", "upstream_error",
@@ -184,6 +204,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.Info("request completed", attributes...)
 	}()
+	if r.ContentLength > h.cfg.MaxRequestBodyBytes {
+		writeSafeError(observed, http.StatusRequestEntityTooLarge, "request body is too large")
+		return
+	}
+	r.Body = http.MaxBytesReader(observed, r.Body, h.cfg.MaxRequestBodyBytes)
 	if h.serveControl(observed, r) {
 		return
 	}
@@ -224,7 +249,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		request.changed = true
 	}
 
-	requestContext := context.WithValue(r.Context(), requestStateKey{}, request)
+	requestContext, cancel := context.WithTimeout(r.Context(), h.cfg.UpstreamTimeout)
+	defer cancel()
+	requestContext = context.WithValue(requestContext, requestStateKey{}, request)
 	h.proxy.ServeHTTP(observed, r.Clone(requestContext))
 }
 

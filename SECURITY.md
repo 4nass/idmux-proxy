@@ -14,9 +14,10 @@ Do not include real user tokens, cookies, keys, or personal data.
 
 The most important deployment rules are:
 
-- use HTTPS between the browser, proxy, and IdP;
+- terminate browser TLS at a trusted ingress and use HTTPS from IdMux to the IdP;
+- restrict the ingress-to-IdMux network hop. Use mTLS when that hop must be encrypted;
 - keep `IDMUX_COOKIE_SECURE=true`;
-- store `IDMUX_ENCRYPTION_KEY` in a secret manager;
+- store the key in a secret manager and mount it with `IDMUX_ENCRYPTION_KEY_FILE`;
 - set `IDMUX_ENCRYPTION_KEY_PREVIOUS` only during key rotation;
 - use a short `IDMUX_SESSION_TTL`;
 - restrict access to the proxy and upstream network;

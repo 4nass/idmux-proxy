@@ -6,48 +6,82 @@ on:
       - "v*.*.*"
 
 permissions:
+  actions: read
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
+  security-events: write
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: publish-image
+  validate:
+    name: validate-release
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  lint:
+    name: lint-release
+    uses: ./.github/workflows/lint.yml
+    permissions:
+      contents: read
+
+  security:
+    name: security-release
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+
+  codeql:
+    name: codeql-release
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+  scan:
+    name: scan-release-images
+    needs: [validate, lint, security, codeql]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
-          cache: false
+          persist-credentials: false
 
-      - name: Run release checks
-        run: go test -race ./...
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4.0.0
 
-      - name: Build release image for scanning
-        uses: docker/build-push-action@v6
+      - name: Build amd64 image
+        uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: deploy/Dockerfile
           platforms: linux/amd64
           load: true
-          tags: idmux-proxy:release-scan
+          tags: idmux-proxy:release-amd64
+          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Scan release image with Trivy
+      - name: Save amd64 image
+        run: docker save --output /tmp/idmux-amd64.tar idmux-proxy:release-amd64
+
+      - name: Scan amd64 image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: idmux-proxy:release-scan
-          version: v0.74.0
+          input: /tmp/idmux-amd64.tar
+          version: v0.76.2
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -55,37 +89,152 @@ jobs:
           severity: CRITICAL,HIGH
           scanners: vuln,secret
 
+      - name: Create amd64 SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          input: /tmp/idmux-amd64.tar
+          version: v0.76.2
+          format: cyclonedx
+          output: /tmp/idmux-amd64.sbom.json
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln
+
+      - name: Build arm64 image
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: idmux-proxy:release-arm64
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Save arm64 image
+        run: docker save --output /tmp/idmux-arm64.tar idmux-proxy:release-arm64
+
+      - name: Scan arm64 image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          input: /tmp/idmux-arm64.tar
+          version: v0.76.2
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret
+
+      - name: Create arm64 SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          input: /tmp/idmux-arm64.tar
+          version: v0.76.2
+          format: cyclonedx
+          output: /tmp/idmux-arm64.sbom.json
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: os,library
+          scanners: vuln
+
+      - name: Upload scanned images and SBOMs
+        uses: actions/upload-artifact@v7
+        with:
+          name: scanned-release-images
+          path: |
+            /tmp/idmux-amd64.tar
+            /tmp/idmux-arm64.tar
+            /tmp/idmux-amd64.sbom.json
+            /tmp/idmux-arm64.sbom.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    name: publish-scanned-images
+    needs: scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Download scanned images and SBOMs
+        uses: actions/download-artifact@v8
+        with:
+          name: scanned-release-images
+          path: /tmp/scanned-release-images
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4.0.0
+
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
+      - name: Publish scanned images and create multi-platform index
+        id: publish
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
 
-      - name: Build and publish image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=max
-          sbom: true
+          docker load --input /tmp/scanned-release-images/idmux-amd64.tar
+          docker load --input /tmp/scanned-release-images/idmux-arm64.tar
 
-      - name: Attest image provenance
+          docker tag idmux-proxy:release-amd64 "$IMAGE:$version-amd64"
+          docker tag idmux-proxy:release-arm64 "$IMAGE:$version-arm64"
+
+          docker push "$IMAGE:$version-amd64" 2>&1 | tee "$RUNNER_TEMP/push-amd64.log"
+          digest_amd64="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' "$RUNNER_TEMP/push-amd64.log" | tail -n 1)"
+          test -n "$digest_amd64"
+
+          docker push "$IMAGE:$version-arm64" 2>&1 | tee "$RUNNER_TEMP/push-arm64.log"
+          digest_arm64="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' "$RUNNER_TEMP/push-arm64.log" | tail -n 1)"
+          test -n "$digest_arm64"
+
+          docker buildx imagetools create \
+            --tag "$IMAGE:$version" \
+            --metadata-file "$RUNNER_TEMP/image-index.json" \
+            "$IMAGE@$digest_amd64" \
+            "$IMAGE@$digest_arm64"
+          digest_index="$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/image-index.json")"
+
+          echo "digest_amd64=$digest_amd64" >> "$GITHUB_OUTPUT"
+          echo "digest_arm64=$digest_arm64" >> "$GITHUB_OUTPUT"
+          echo "digest_index=$digest_index" >> "$GITHUB_OUTPUT"
+
+      - name: Attest amd64 SBOM
         uses: actions/attest@v4
         with:
           subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.publish.outputs.digest_amd64 }}
+          sbom-path: /tmp/scanned-release-images/idmux-amd64.sbom.json
+          push-to-registry: true
+
+      - name: Attest arm64 SBOM
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest_arm64 }}
+          sbom-path: /tmp/scanned-release-images/idmux-arm64.sbom.json
+          push-to-registry: true
+
+      - name: Attest multi-platform image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest_index }}
           push-to-registry: true

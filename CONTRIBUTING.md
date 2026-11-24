@@ -26,11 +26,13 @@ docker build --file deploy/Dockerfile --tag idmux-proxy:local .
 trivy image --severity HIGH,CRITICAL --ignore-unfixed idmux-proxy:local
 ```
 
-The Docker and Trivy checks require Docker and Trivy locally. The same checks
-run in GitHub Actions for every pull request and release.
+The Docker and Trivy checks require Docker and Trivy locally. GitHub Actions
+runs tests, lint, vulnerability checks, CodeQL, and image scans before it
+publishes a release. The release uses the scanned image archives; it does not
+build a second set of images for publication.
 
-See [`docs/gitops.md`](docs/gitops.md) for the branch, review, release, and
-deployment workflow.
+See [`docs/devops-and-operations.md`](docs/devops-and-operations.md) for the
+branch, review, release, and deployment workflow.
 
 ## Pull requests
 
