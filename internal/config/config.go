@@ -12,20 +12,35 @@ import (
 	"time"
 )
 
+const (
+	// DefaultMaxRequestBodyBytes is the default request body limit.
+	DefaultMaxRequestBodyBytes int64 = 1 << 20
+	// MaxRequestBodyBytes is the largest allowed request body limit.
+	MaxRequestBodyBytes int64 = 1 << 30
+	// DefaultUpstreamTimeout is the default deadline for an IdP request.
+	DefaultUpstreamTimeout = 45 * time.Second
+	// MinUpstreamTimeout is the shortest allowed deadline for an IdP request.
+	MinUpstreamTimeout = time.Second
+	// MaxUpstreamTimeout is the longest allowed deadline for an IdP request.
+	MaxUpstreamTimeout = 5 * time.Minute
+)
+
 type Config struct {
-	Environment       string
-	ListenAddr        string
-	UpstreamURL       *url.URL
-	IDPCookieName     string
-	SessionCookieName string
-	CookieKeys        [][]byte
-	CookieSecure      bool
-	CookieSameSite    string
-	SessionTTL        time.Duration
-	MaxSessions       int
-	LogoutPathPrefix  string
-	ControlPathPrefix string
-	TrustedOrigins    []string
+	Environment         string
+	ListenAddr          string
+	UpstreamURL         *url.URL
+	UpstreamTimeout     time.Duration
+	IDPCookieName       string
+	SessionCookieName   string
+	CookieKeys          [][]byte
+	CookieSecure        bool
+	CookieSameSite      string
+	SessionTTL          time.Duration
+	MaxSessions         int
+	MaxRequestBodyBytes int64
+	LogoutPathPrefix    string
+	ControlPathPrefix   string
+	TrustedOrigins      []string
 }
 
 func Load() (Config, error) {
@@ -41,6 +56,9 @@ func Load() (Config, error) {
 	upstream, err := url.Parse(upstreamValue)
 	if err != nil || upstream.Host == "" || (upstream.Scheme != "http" && upstream.Scheme != "https") {
 		return Config{}, errors.New("IDMUX_UPSTREAM_URL must be an http or https URL with a host")
+	}
+	if environment == "production" && upstream.Scheme != "https" {
+		return Config{}, errors.New("IDMUX_UPSTREAM_URL must use https in production")
 	}
 
 	keys, err := readKeys()
@@ -69,26 +87,50 @@ func Load() (Config, error) {
 	if err != nil || maxSessions < 1 || maxSessions > 32 {
 		return Config{}, errors.New("IDMUX_MAX_SESSIONS must be between 1 and 32")
 	}
+	maxRequestBody, err := readInt64("IDMUX_MAX_REQUEST_BODY_BYTES", DefaultMaxRequestBodyBytes)
+	if err != nil || maxRequestBody < 1 || maxRequestBody > MaxRequestBodyBytes {
+		return Config{}, errors.New("IDMUX_MAX_REQUEST_BODY_BYTES must be between 1 and 1073741824")
+	}
+	upstreamTimeout, err := time.ParseDuration(readString("IDMUX_UPSTREAM_TIMEOUT", DefaultUpstreamTimeout.String()))
+	if err != nil || upstreamTimeout < MinUpstreamTimeout || upstreamTimeout > MaxUpstreamTimeout {
+		return Config{}, errors.New("IDMUX_UPSTREAM_TIMEOUT must be between 1s and 5m")
+	}
 
 	return Config{
-		Environment:       environment,
-		ListenAddr:        readString("IDMUX_LISTEN_PORT", ":9000"),
-		UpstreamURL:       upstream,
-		IDPCookieName:     readString("IDMUX_COOKIE_NAME", "KEYCLOAK_IDENTITY"),
-		SessionCookieName: readString("IDMUX_SESSION_COOKIE_NAME", "IDMUX_SESSION"),
-		CookieKeys:        keys,
-		CookieSecure:      secure,
-		CookieSameSite:    sameSite,
-		SessionTTL:        ttl,
-		MaxSessions:       maxSessions,
-		LogoutPathPrefix:  readString("IDMUX_LOGOUT_PATH_PREFIX", "/protocol/openid-connect/logout"),
-		ControlPathPrefix: readString("IDMUX_CONTROL_PATH_PREFIX", "/__idmux"),
-		TrustedOrigins:    readList("IDMUX_TRUSTED_ORIGINS"),
+		Environment:         environment,
+		ListenAddr:          readString("IDMUX_LISTEN_PORT", ":9000"),
+		UpstreamURL:         upstream,
+		UpstreamTimeout:     upstreamTimeout,
+		IDPCookieName:       readString("IDMUX_COOKIE_NAME", "KEYCLOAK_IDENTITY"),
+		SessionCookieName:   readString("IDMUX_SESSION_COOKIE_NAME", "IDMUX_SESSION"),
+		CookieKeys:          keys,
+		CookieSecure:        secure,
+		CookieSameSite:      sameSite,
+		SessionTTL:          ttl,
+		MaxSessions:         maxSessions,
+		MaxRequestBodyBytes: maxRequestBody,
+		LogoutPathPrefix:    readString("IDMUX_LOGOUT_PATH_PREFIX", "/protocol/openid-connect/logout"),
+		ControlPathPrefix:   readString("IDMUX_CONTROL_PATH_PREFIX", "/__idmux"),
+		TrustedOrigins:      readList("IDMUX_TRUSTED_ORIGINS"),
 	}, nil
 }
 
 func readKeys() ([][]byte, error) {
 	active := strings.TrimSpace(os.Getenv("IDMUX_ENCRYPTION_KEY"))
+	keyFile := strings.TrimSpace(os.Getenv("IDMUX_ENCRYPTION_KEY_FILE"))
+	if active != "" && keyFile != "" {
+		return nil, errors.New("set only one of IDMUX_ENCRYPTION_KEY or IDMUX_ENCRYPTION_KEY_FILE")
+	}
+	if keyFile != "" {
+		value, err := os.ReadFile(keyFile) // #nosec G304 -- The file path is startup configuration provided by the trusted operator.
+		if err != nil {
+			return nil, fmt.Errorf("read IDMUX_ENCRYPTION_KEY_FILE: %w", err)
+		}
+		active = strings.TrimSpace(string(value))
+		if active == "" {
+			return nil, errors.New("IDMUX_ENCRYPTION_KEY_FILE must not be empty")
+		}
+	}
 	if active == "" {
 		active = strings.TrimSpace(os.Getenv("IDMUX_SECRET_KEY"))
 	}
@@ -147,6 +189,18 @@ func readInt(name string, fallback int) (int, error) {
 		return fallback, nil
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return parsed, nil
+}
+
+func readInt64(name string, fallback int64) (int64, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}

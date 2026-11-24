@@ -69,15 +69,18 @@ secret manager. Never commit the key.
 | --- | --- | --- |
 | `IDMUX_ENV` | `production` | Use `development` only for local HTTP tests. |
 | `IDMUX_LISTEN_PORT` | `:9000` | Local listen address. |
-| `IDMUX_UPSTREAM_URL` | required | IdP URL, including scheme and host. |
+| `IDMUX_UPSTREAM_URL` | required | IdP URL. HTTPS is required in production; HTTP is for development only. |
 | `IDMUX_COOKIE_NAME` | `KEYCLOAK_IDENTITY` | Native IdP session cookie name. |
 | `IDMUX_SESSION_COOKIE_NAME` | `IDMUX_SESSION` | Encrypted browser cookie name. |
-| `IDMUX_ENCRYPTION_KEY` | required | Active 32-byte AES-256 key in base64. |
+| `IDMUX_ENCRYPTION_KEY` | one required | Active 32-byte AES-256 key in base64. Use `_FILE` for production secrets. |
+| `IDMUX_ENCRYPTION_KEY_FILE` | empty | File containing the active base64 key. Use a mounted secret in production. |
 | `IDMUX_ENCRYPTION_KEY_PREVIOUS` | empty | Previous base64 keys used during rotation. |
 | `IDMUX_COOKIE_SECURE` | `true` | Use `Secure` on the composite cookie. False is allowed only in development. |
 | `IDMUX_COOKIE_SAMESITE` | `lax` | `lax`, `strict`, or `none`. |
 | `IDMUX_SESSION_TTL` | `12h` | Maximum age of encrypted session state. |
 | `IDMUX_MAX_SESSIONS` | `8` | Maximum sessions held in one cookie. |
+| `IDMUX_MAX_REQUEST_BODY_BYTES` | `1048576` | Maximum request body size, from 1 byte to 1 GiB. |
+| `IDMUX_UPSTREAM_TIMEOUT` | `45s` | Maximum time for one request to the IdP, from 1 second to 5 minutes. |
 | `IDMUX_LOGOUT_PATH_PREFIX` | `/protocol/openid-connect/logout` | IdP logout path prefix. |
 | `IDMUX_TRUSTED_ORIGINS` | empty | Comma-separated origins allowed for the account list API. |
 
@@ -103,6 +106,11 @@ Internal endpoints:
 - `GET /__idmux/readyz`
 - `GET /__idmux/sessions`
 - `GET /__idmux/metrics`
+
+## Deployment
+
+See [`docs/deployment.md`](docs/deployment.md) for hardened Docker Compose and
+Kubernetes examples, network limits, TLS boundaries, and image pinning.
 
 Logs and metrics use safe values. See the
 [observability guide](docs/observability.md) for the fields and redaction rules.
